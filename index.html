@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Holoplot 3D — Venue Planner (Practice)</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/three.module.js",
+        "three/examples/jsm/controls/OrbitControls.js": "./vendor/three/examples/jsm/controls/OrbitControls.js",
+        "three/examples/jsm/controls/TransformControls.js": "./vendor/three/examples/jsm/controls/TransformControls.js",
+        "three/examples/jsm/exporters/GLTFExporter.js": "./vendor/three/examples/jsm/exporters/GLTFExporter.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="app">
+    <header id="topbar">
+      <div class="topbar-left">
+        <div class="app-title">Holoplot 3D — Venue Planner (Practice)</div>
+        <div class="venue-name" id="venueName">Theatre — 800 cap</div>
+      </div>
+      <div class="topbar-actions">
+        <button id="btnSave">Save</button>
+        <button id="btnLoad">Load</button>
+        <button id="btnExportJSON">Export JSON</button>
+        <button id="btnImportJSON">Import JSON</button>
+        <button id="btnExportGLB">Export GLB</button>
+        <button id="btnReset">Reset design</button>
+        <button id="btnAbout">About</button>
+      </div>
+    </header>
+
+    <div id="main">
+      <aside id="toolRail">
+        <div class="tool" data-tool="select" title="Select (V)">
+          <div class="tool-icon">⇲</div>
+          <div class="tool-label">Select</div>
+          <div class="tool-key">V</div>
+        </div>
+        <div class="tool" data-tool="orbit" title="Orbit (H)">
+          <div class="tool-icon">◎</div>
+          <div class="tool-label">Orbit</div>
+          <div class="tool-key">H</div>
+        </div>
+        <div class="tool" data-tool="rectangle" title="Rectangle (R)">
+          <div class="tool-icon">▭</div>
+          <div class="tool-label">Rectangle</div>
+          <div class="tool-key">R</div>
+        </div>
+        <div class="tool" data-tool="pushpull" title="Push/Pull (P)">
+          <div class="tool-icon">⇅</div>
+          <div class="tool-label">Push/Pull</div>
+          <div class="tool-key">P</div>
+        </div>
+        <div class="tool" data-tool="move" title="Move (M)">
+          <div class="tool-icon">↔</div>
+          <div class="tool-label">Move</div>
+          <div class="tool-key">M</div>
+        </div>
+        <div class="tool" data-tool="tape" title="Tape Measure (T)">
+          <div class="tool-icon">📏</div>
+          <div class="tool-label">Tape Measure</div>
+          <div class="tool-key">T</div>
+        </div>
+        <div class="tool" data-tool="eraser" title="Eraser (E)">
+          <div class="tool-icon">✂</div>
+          <div class="tool-label">Eraser</div>
+          <div class="tool-key">E</div>
+        </div>
+        <div class="tool-sep"></div>
+        <label class="tool-toggle"><input type="checkbox" id="snapToggle" checked> Snap</label>
+      </aside>
+
+      <div id="viewport">
+        <canvas id="threeCanvas"></canvas>
+        <div id="measurementsBox">
+          <div class="mb-title">Measurements</div>
+          <input id="measurementsInput" type="text" autocomplete="off" spellcheck="false" placeholder="—" aria-label="Measurements">
+        </div>
+      </div>
+
+      <aside id="rightPanel">
+        <section class="panel-section">
+          <div class="panel-header">Holoplot</div>
+          <div class="panel-body">
+            <label>Venue
+              <select id="venueSelect"></select>
+            </label>
+            <label>Array
+              <select id="arraySelect"></select>
+            </label>
+            <div class="row">
+              <label>On <input type="checkbox" id="arrayOn"></label>
+            </div>
+            <label>Azimuth <input type="range" id="azRange" min="-40" max="40" step="1"> <span id="azVal">-10</span></label>
+            <label>Tilt <input type="range" id="tiltRange" min="-15" max="25" step="1"> <span id="tiltVal">0</span></label>
+            <label>hBeam <input type="range" id="hBeamRange" min="10" max="60" step="1"> <span id="hBeamVal">28</span></label>
+            <label>vBeam <input type="range" id="vBeamRange" min="8" max="40" step="1"> <span id="vBeamVal">18</span></label>
+            <label>Gain <input type="range" id="gainRange" min="-12" max="12" step="1"> <span id="gainVal">0</span></label>
+            <div class="row">
+              <label>X <input type="number" id="arrayX" step="0.5"></label>
+              <label>Y <input type="number" id="arrayY" step="0.5"></label>
+            </div>
+            <div class="row">
+              <button id="btnAddSpeaker">Add speaker</button>
+              <button id="btnDelSpeaker">Delete speaker</button>
+            </div>
+            <div class="stats">
+              <div>Avg: <span id="statAvg">-</span></div>
+              <div>Coverage (>=78): <span id="statCov">-</span></div>
+              <div>Spill (>75): <span id="statSpill">-</span></div>
+              <div>Uniformity: <span id="statUni">-</span></div>
+              <div id="zoneStats"></div>
+            </div>
+            <div class="row">
+              <label>Res
+                <select id="resSelect">
+                  <option value="low">Low</option>
+                  <option value="high">High</option>
+                </select>
+              </label>
+              <button id="btnRecompute">Recompute</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <div class="panel-header">Tags</div>
+          <div class="panel-body">
+            <div class="tag-row"><label><input type="checkbox" data-tag="Venue" checked> Venue</label></div>
+            <div class="tag-row"><label><input type="checkbox" data-tag="Zones" checked> Zones</label></div>
+            <div class="tag-row"><label><input type="checkbox" data-tag="Blocks" checked> Blocks</label></div>
+            <div class="tag-row"><label><input type="checkbox" data-tag="Arrays" checked> Arrays</label></div>
+            <div class="tag-row"><label><input type="checkbox" data-tag="Beams" checked> Beams</label></div>
+            <div class="tag-row"><label><input type="checkbox" data-tag="Coverage" checked> Coverage</label></div>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <div class="panel-header">Outliner</div>
+          <div class="panel-body">
+            <div id="outliner"></div>
+          </div>
+        </section>
+      </aside>
+    </div>
+
+    <footer id="statusBar">Select: click to select objects. SketchUp-style practice tool.</footer>
+  </div>
+
+  <div id="aboutModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">About</div>
+      <div class="modal-body">
+        <p><strong>Holoplot 3D — Venue Planner (Practice)</strong></p>
+        <p>This is a practice edition, not SketchUp, not HOLOPLOT software, not affiliated with Trimble or HOLOPLOT.</p>
+        <p>SPL values are relative practice values from a simplified model.</p>
+      </div>
+      <div class="modal-footer"><button id="btnAboutClose">Close</button></div>
+    </div>
+  </div>
+
+  <input type="file" id="fileImport" accept="application/json" style="display:none">
+  <script type="module" src="app.js"></script>
+</body>
+</html>
