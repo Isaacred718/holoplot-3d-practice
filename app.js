@@ -40,7 +40,9 @@ function hVenueById(id){
 }
 
 // PARITY FUNCTION - must be pure DOM-free as specified
-function HP_compute(design, step){
+function HP_compute(design, step, fx){
+  const FX = fx || {};
+  const ALPHA = FX.alpha || 0;
   // design has venueId, arrays
   const venue = hVenueById(design.venueId || 'theatre');
   const resStep = step || H_RES_STEP['low'] || 4;
@@ -61,7 +63,7 @@ function HP_compute(design, step){
   (design.arrays || []).forEach(function(a){
     if(!a.on) return;
     const key = stepVal + "|" + venue.id + "|" + a.x + "|" + a.y + "|" + (typeof a.height==="number"?a.height:5.5) + "|" + (a.on?1:0) + "|" + 
-      (a.beams||[]).map(function(b){ return [b.az,b.hBeam,b.gain,(design.layerOn && design.layerOn[b.layer]===false)?0:1].join(","); }).join(";");
+      (a.beams||[]).map(function(b){ return [b.az,b.hBeam,b.gain,(design.layerOn && design.layerOn[b.layer]===false)?0:1].join(","); }).join(";") + "|" + (FX.key || "");
     let energies = design._arrCache[key];
     if(!energies){
       energies = new Array(coords.length).fill(0);
@@ -78,16 +80,54 @@ function HP_compute(design, step){
           while(diff < -180) diff += 360;
           const fall = -14 * Math.pow(diff / Math.max(8, b.hBeam||28), 2);
           let spl = 104 + (b.gain||0) - 20*Math.log10(Math.max(2, dist)) + Math.max(-32, fall);
+          if(ALPHA > 0) spl -= ALPHA * dist;
           energies[i] += Math.pow(10, spl/10);
         }
       });
+      if(FX.reflOn && FX.walls){
+        (a.beams||[]).forEach(function(b){
+          if(design.layerOn && design.layerOn[b.layer] === false) return;
+          FX.walls.forEach(function(wl){
+            const wdx = wl.x2 - wl.x1, wdy = wl.y2 - wl.y1;
+            const L2 = wdx*wdx + wdy*wdy;
+            if(L2 < 0.04) return;
+            const t = ((a.x - wl.x1)*wdx + (a.y - wl.y1)*wdy) / L2;
+            const fx2 = wl.x1 + t*wdx, fy2 = wl.y1 + t*wdy;
+            const ix = 2*fx2 - a.x, iy = 2*fy2 - a.y;
+            if(wl.keep <= 0.02) return;
+            const rdz = (typeof a.height === 'number' ? a.height : 5.5) - 1.5;
+            for(let i = 0; i < coords.length; i++){
+              const px = coords[i].x, py = coords[i].y;
+              const ex = px - ix, ey = py - iy;
+              const den = ex*wdy - ey*wdx;
+              if(Math.abs(den) < 1e-9) continue;
+              const s2 = ((wl.x1 - ix)*wdy - (wl.y1 - iy)*wdx) / den;
+              if(s2 <= 0 || s2 >= 1) continue;
+              const rx = ix + s2*ex, ry = iy + s2*ey;
+              const tt = ((rx - wl.x1)*wdx + (ry - wl.y1)*wdy) / L2;
+              if(tt < 0 || tt > 1) continue;
+              const ddx = px - ix, ddy = py - iy;
+              const rdist = Math.sqrt(ddx*ddx + ddy*ddy + rdz*rdz);
+              const rAng = Math.atan2(ddx, ddy) * 180 / Math.PI;
+              let rdiff = rAng - b.az;
+              while(rdiff > 180) rdiff -= 360;
+              while(rdiff < -180) rdiff += 360;
+              const rfall = -14 * Math.pow(rdiff / Math.max(8, b.hBeam||28), 2);
+              let rspl = 104 + (b.gain||0) - 20*Math.log10(Math.max(2, rdist)) + Math.max(-32, rfall);
+              if(ALPHA > 0) rspl -= ALPHA * rdist;
+              energies[i] += Math.pow(10, rspl/10) * wl.keep;
+            }
+          });
+        });
+      }
       design._arrCache[key] = energies;
     }
     for(let j=0; j<coords.length; j++) total[j] += energies[j];
   });
   
   const list = coords.map(function(c,i){
-    const splv = total[i] > 0 ? 10*Math.log10(total[i]) : 42;
+    const tot = total[i] + (FX.revPow || 0);
+    const splv = tot > 0 ? 10*Math.log10(tot) : 42;
     let zi = -1;
     for(let k=0; k<venue.zones.length; k++){
       const zn = venue.zones[k];
@@ -197,6 +237,8 @@ const state = {
   probe: null,
   probeTarget: 80,
   _probeLimited: false,
+  env: defaultEnv(),
+  surf: defaultSurf(),
   selectedObject: null,
   tool: 'select',
   snap: true,
@@ -216,7 +258,9 @@ function saveState(){
       tags: state.tags,
       blocks: state.blocks,
       probe: state.probe,
-      probeTarget: state.probeTarget
+      probeTarget: state.probeTarget,
+      env: state.env,
+      surf: state.surf
     }));
   } catch(e){}
 }
@@ -236,6 +280,8 @@ function loadState(){
       normalizeArrays();
       if(parsed.probe && isFinite(parsed.probe.x) && isFinite(parsed.probe.y)) state.probe = { x: parsed.probe.x, y: parsed.probe.y };
       if(typeof parsed.probeTarget === 'number' && isFinite(parsed.probeTarget)) state.probeTarget = parsed.probeTarget;
+      if(parsed.env) state.env = Object.assign(defaultEnv(), parsed.env);
+      if(parsed.surf) state.surf = Object.assign(defaultSurf(), parsed.surf);
       if(parsed.tags) state.tags = Object.assign(defaultTags(), parsed.tags);
       if(Array.isArray(parsed.blocks)) state.blocks = parsed.blocks;
     }
@@ -246,7 +292,7 @@ function loadState(){
 // Three.js setup
 let scene, camera, renderer, controls;
 let gridHelper, axesHelper;
-let venueGroup, zonesGroup, blocksGroup, arraysGroup, beamsGroup, coverageGroup, probeGroup;
+let venueGroup, zonesGroup, blocksGroup, arraysGroup, beamsGroup, coverageGroup, probeGroup, modesGroup;
 let selectionHelper = null;
 let raycaster = new THREE.Raycaster();
 let pointerNdc = new THREE.Vector2();
@@ -355,6 +401,8 @@ function initThree(){
   scene.add(coverageGroup);
   probeGroup = new THREE.Group();
   scene.add(probeGroup);
+  modesGroup = new THREE.Group();
+  scene.add(modesGroup);
 
   buildVenue();
   buildBlocks();
@@ -417,7 +465,7 @@ function buildVenue(){
   venueGroup.add(floor);
 
   // Low translucent perimeter walls at the stage and back edges.
-  const wallMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, transparent: true, opacity: 0.3 });
+  const wallMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(H_MATERIALS[state.surf.wallMat].color), transparent: true, opacity: 0.35 });
   const wallGeo1 = new THREE.BoxGeometry(venue.w, 3, 0.2);
   const wall1 = new THREE.Mesh(wallGeo1, wallMat);
   wall1.position.set(0, 1.5, 0);
@@ -425,6 +473,13 @@ function buildVenue(){
   const wall2 = new THREE.Mesh(wallGeo1, wallMat);
   wall2.position.set(0, 1.5, -venue.d);
   venueGroup.add(wall2);
+  const wallGeo2 = new THREE.BoxGeometry(0.2, 3, venue.d);
+  const wall3 = new THREE.Mesh(wallGeo2, wallMat);
+  wall3.position.set(-venue.w / 2, 1.5, -venue.d / 2);
+  venueGroup.add(wall3);
+  const wall4 = new THREE.Mesh(wallGeo2, wallMat);
+  wall4.position.set(venue.w / 2, 1.5, -venue.d / 2);
+  venueGroup.add(wall4);
 
   // Stage block at the plan y<6 end.
   const stageGeo = new THREE.BoxGeometry(venue.w * 0.8, 1, 6);
@@ -695,7 +750,7 @@ function buildCoverage(){
     arrays: state.arrays,
     layerOn: state.layerOn
   };
-  const result = HP_compute(design, H_RES_STEP[state.resMode] || 4);
+  const result = HP_compute(design, H_RES_STEP[state.resMode] || 4, computeFx());
 
   const cols = Math.max(1, result.gridCols);
   const rows = Math.max(1, result.gridRows);
@@ -757,6 +812,9 @@ function buildCoverage(){
     zoneStatsDiv.appendChild(div);
   });
   updateProbePanel();
+  updateEnvPanel();
+  updateSurfPanel();
+  buildModes();
 }
 
 // ---------------------------------------------------------------------------
@@ -1681,6 +1739,27 @@ function initUI(){
     state.probeTarget = clampNum(state.probeTarget - 1, 50, 100);
     refreshProbe();
   });
+  const envChanged = function(){ buildCoverage(); saveState(); };
+  document.getElementById('envTemp').addEventListener('input', function(e){ state.env.temp = parseFloat(e.target.value); envChanged(); });
+  document.getElementById('envRh').addEventListener('input', function(e){ state.env.rh = parseFloat(e.target.value); envChanged(); });
+  document.getElementById('envPress').addEventListener('input', function(e){ state.env.press = parseFloat(e.target.value); envChanged(); });
+  document.querySelectorAll('[data-env-preset]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const p = btn.getAttribute('data-env-preset');
+      if(p === 'std'){ state.env.temp = 20; state.env.rh = 50; }
+      if(p === 'hot'){ state.env.temp = 32; state.env.rh = 80; }
+      if(p === 'cold'){ state.env.temp = 5; state.env.rh = 20; }
+      envChanged();
+      setStatus('Environment preset: ' + btn.textContent + '. Speed of sound ' + soundSpeed().toFixed(1) + ' m/s.');
+    });
+  });
+  document.getElementById('envAbsOn').addEventListener('change', function(e){ state.env.absOn = e.target.checked; envChanged(); });
+  document.getElementById('envAbsFreq').addEventListener('change', function(e){ state.env.absFreq = parseInt(e.target.value, 10); envChanged(); });
+  document.getElementById('envModesOn').addEventListener('change', function(e){ state.env.modesOn = e.target.checked; envChanged(); });
+  document.getElementById('envModeFreq').addEventListener('input', function(e){ state.env.modeFreq = parseFloat(e.target.value); envChanged(); });
+  document.getElementById('surfReflOn').addEventListener('change', function(e){ state.surf.reflOn = e.target.checked; buildCoverage(); saveState(); setStatus('Reflections ' + (state.surf.reflOn ? 'on: image-source reflections plus Sabine reverb join the direct sound.' : 'off: direct sound only.')); });
+  document.getElementById('surfWallMat').addEventListener('change', function(e){ state.surf.wallMat = e.target.value; buildVenue(); buildCoverage(); saveState(); });
+  document.getElementById('surfFloorMat').addEventListener('change', function(e){ state.surf.floorMat = e.target.value; buildCoverage(); saveState(); });
   document.getElementById('btnRecompute').addEventListener('click', function(){
     buildCoverage();
   });
@@ -1983,6 +2062,185 @@ function getSelectedArray(){
 
 
 
+
+/* ================= ENVIRONMENT & SURFACES (ported from the 2D app) =================
+   Simplified models — practice values, not predictions. Materials carry
+   simplified typical absorption coefficients per frequency. Reflections are
+   first-order specular (image-source); the reverberant field is Sabine's. */
+const H_ROOM_H = 9;
+const H_MAT_FREQS = [125, 250, 500, 1000, 2000, 4000, 8000];
+const H_MATERIALS = {
+  concrete: { label: 'Concrete', color: '#94A3B8', a: [0.01, 0.01, 0.02, 0.02, 0.03, 0.04, 0.04] },
+  brick: { label: 'Brick', color: '#F87171', a: [0.03, 0.03, 0.03, 0.04, 0.05, 0.06, 0.07] },
+  wood: { label: 'Wood panel', color: '#D97706', a: [0.18, 0.14, 0.10, 0.08, 0.08, 0.07, 0.07] },
+  glass: { label: 'Glass', color: '#38BDF8', a: [0.10, 0.08, 0.05, 0.04, 0.03, 0.02, 0.02] },
+  curtain: { label: 'Heavy curtain', color: '#A78BFA', a: [0.07, 0.15, 0.35, 0.55, 0.65, 0.70, 0.70] },
+  panel: { label: 'Acoustic panel', color: '#34D399', a: [0.15, 0.35, 0.65, 0.85, 0.90, 0.90, 0.90] }
+};
+const H_FLOOR_MATS = {
+  empty: { label: 'Empty floor', a: [0.02, 0.02, 0.03, 0.03, 0.04, 0.05, 0.05] },
+  audience: { label: 'Seated audience', a: [0.30, 0.45, 0.60, 0.70, 0.75, 0.80, 0.80] }
+};
+
+function defaultEnv(){ return { temp: 20, rh: 50, press: 1013, absOn: false, absFreq: 1000, modesOn: false, modeFreq: 80 }; }
+function defaultSurf(){ return { reflOn: false, wallMat: 'concrete', floorMat: 'audience' }; }
+
+function satVapPress(T){ return 6.112 * Math.exp(17.67 * T / (T + 243.5)); }
+function soundSpeed(){
+  const e = state.env || defaultEnv();
+  const Tk = e.temp + 273.15;
+  const pv = (e.rh / 100) * satVapPress(e.temp);
+  const xw = pv / Math.max(300, e.press);
+  return Math.round(331.3 * Math.sqrt(Tk / 273.15) * (1 + 0.14 * xw) * 10) / 10;
+}
+function alphaAir(){
+  const e = state.env || defaultEnv();
+  const f = e.absFreq, Ta = e.temp + 273.15, T0 = 293.15, T01 = 273.16, pa = e.press, pr = 1013.25;
+  const psat = pr * Math.pow(10, -6.8346 * Math.pow(T01 / Ta, 1.261) + 4.6151);
+  const h = e.rh * psat / pa;
+  const frO = (pa / pr) * (24 + 4.04e4 * h * (0.02 + h) / (0.391 + h));
+  const frN = (pa / pr) * Math.pow(Ta / T0, -0.5) * (9 + 280 * h * Math.exp(-4.17 * (Math.pow(Ta / T0, -1 / 3) - 1)));
+  const term = 1.84e-11 * Math.pow(pa / pr, -1) * Math.pow(Ta / T0, 0.5)
+    + Math.pow(Ta / T0, -2.5) * (0.01275 * Math.exp(-2239.1 / Ta) / (frO + f * f / frO) + 0.1068 * Math.exp(-3352 / Ta) / (frN + f * f / frN));
+  return Math.max(0, 8.686 * f * f * term);
+}
+function matFreqIdx(){
+  const f = (state.env && state.env.absFreq) || 1000;
+  let best = 3, bd = 1e9;
+  H_MAT_FREQS.forEach(function(x, i){ const d = Math.abs(Math.log2(x / f)); if(d < bd){ bd = d; best = i; } });
+  return best;
+}
+function matAlpha(key){ const m = H_MATERIALS[key] || H_MATERIALS.concrete; return m.a[matFreqIdx()]; }
+function floorAlpha(){ const m = H_FLOOR_MATS[state.surf.floorMat] || H_FLOOR_MATS.audience; return m.a[matFreqIdx()]; }
+function venueWalls(){
+  const v = hVenueById(state.venueId);
+  const x0 = -v.w / 2, x1 = v.w / 2;
+  return [[x0, 0, x1, 0], [x1, 0, x1, v.d], [x1, v.d, x0, v.d], [x0, v.d, x0, 0]].map(function(sg){
+    return { x1: sg[0], y1: sg[1], x2: sg[2], y2: sg[3], mat: state.surf.wallMat };
+  });
+}
+function roomAcoustics(){
+  const v = hVenueById(state.venueId);
+  let A = 0, per = 0;
+  venueWalls().forEach(function(wl){
+    const len = Math.hypot(wl.x2 - wl.x1, wl.y2 - wl.y1);
+    per += len;
+    A += len * H_ROOM_H * matAlpha(wl.mat);
+  });
+  const area = v.w * v.d;
+  A += area * floorAlpha();
+  A += area * 0.03;
+  const V = area * H_ROOM_H;
+  return { V: Math.round(V), A: Math.round(A * 10) / 10, rt60: A > 0 ? Math.round(0.161 * V / A * 100) / 100 : 0, area: Math.round(area), per: Math.round(per * 10) / 10 };
+}
+function envKey(){
+  const e = state.env;
+  return e.absOn ? ('ab' + alphaAir().toFixed(5) + '@' + e.absFreq) : 'ab0';
+}
+function surfKey(){
+  const w = venueWalls().map(function(sg){ return [sg.x1, sg.y1, sg.x2, sg.y2, sg.mat].join(','); }).join(';');
+  return (state.surf.reflOn ? 'R1' : 'R0') + '|' + w + '|' + state.surf.floorMat + '|f' + state.env.absFreq;
+}
+function computeFx(){
+  const alpha = state.env.absOn ? alphaAir() : 0;
+  let walls = null, revPow = 0;
+  if(state.surf.reflOn){
+    walls = venueWalls().map(function(wl){ return { x1: wl.x1, y1: wl.y1, x2: wl.x2, y2: wl.y2, keep: 1 - matAlpha(wl.mat) }; });
+    const ac = roomAcoustics();
+    if(ac.A > 1){
+      let lw = 0;
+      state.arrays.forEach(function(a){
+        if(!a.on) return;
+        (a.beams || []).forEach(function(b){ if(state.layerOn[b.layer] !== false) lw += Math.pow(10, (92 + (b.gain || 0)) / 10); });
+      });
+      if(lw > 0) revPow = lw * 4 / ac.A;
+    }
+  }
+  return { alpha: alpha, key: envKey() + '|' + surfKey(), reflOn: state.surf.reflOn, walls: walls, revPow: revPow };
+}
+function modeFreqFn(nx, ny, nz){
+  const v = hVenueById(state.venueId), c = soundSpeed();
+  return (c / 2) * Math.sqrt(Math.pow(nx / v.w, 2) + Math.pow(ny / v.d, 2) + Math.pow(nz / H_ROOM_H, 2));
+}
+function nearestMode(target){
+  let best = null;
+  for(let nx = 0; nx <= 4; nx++) for(let ny = 0; ny <= 4; ny++) for(let nz = 0; nz <= 2; nz++){
+    if(!nx && !ny && !nz) continue;
+    const f = modeFreqFn(nx, ny, nz);
+    if(!best || Math.abs(f - target) < Math.abs(best.f - target)) best = { nx: nx, ny: ny, nz: nz, f: Math.round(f * 100) / 100 };
+  }
+  return best;
+}
+function buildModes(){
+  if(!modesGroup) return;
+  disposeGroup(modesGroup);
+  if(!state.env.modesOn) return;
+  const v = hVenueById(state.venueId);
+  const md = nearestMode(state.env.modeFreq);
+  const N = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = N; canvas.height = N;
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(N, N);
+  for(let j = 0; j < N; j++){
+    for(let i = 0; i < N; i++){
+      const u = i / (N - 1), w2 = j / (N - 1);
+      let amp = Math.abs(Math.cos(md.nx * Math.PI * u) * Math.cos(md.ny * Math.PI * w2));
+      if(!md.nx && !md.ny) amp = 0.55;
+      const idx = (j * N + i) * 4;
+      img.data[idx] = 245; img.data[idx + 1] = 158; img.data[idx + 2] = 11;
+      img.data[idx + 3] = Math.round(amp * 150);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(canvas);
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(v.w, v.d),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false })
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.set(0, 0.09, -v.d / 2);
+  modesGroup.add(mesh);
+}
+function updateEnvPanel(){
+  const e = state.env;
+  const set = function(id, val){ const el = document.getElementById(id); if(el) el.value = val; };
+  const txt = function(id, val){ const el = document.getElementById(id); if(el) el.textContent = val; };
+  set('envTemp', e.temp); txt('envTempVal', e.temp.toFixed(1) + ' °C');
+  set('envRh', e.rh); txt('envRhVal', e.rh + ' % RH');
+  set('envPress', e.press); txt('envPressVal', e.press + ' hPa');
+  txt('envSpeed', 'Speed of sound: ' + soundSpeed().toFixed(1) + ' m/s');
+  const absBox = document.getElementById('envAbsOn');
+  if(absBox) absBox.checked = !!e.absOn;
+  set('envAbsFreq', e.absFreq);
+  txt('envAlpha', e.absOn ? ('α ' + alphaAir().toFixed(3) + ' dB/m at ' + e.absFreq + ' Hz — taken off every beam over distance.') : '');
+  const modesBox = document.getElementById('envModesOn');
+  if(modesBox) modesBox.checked = !!e.modesOn;
+  set('envModeFreq', e.modeFreq); txt('envModeFreqVal', e.modeFreq + ' Hz');
+  const modesDiv = document.getElementById('envModes');
+  if(modesDiv){
+    if(e.modesOn){
+      const v = hVenueById(state.venueId), c = soundSpeed();
+      const axial = function(L){ return [1, 2, 3].map(function(n){ return Math.round(n * c / (2 * L) * 100) / 100; }).join(' / '); };
+      const md = nearestMode(e.modeFreq);
+      modesDiv.innerHTML = 'Nearest mode to ' + e.modeFreq + ' Hz: <b>' + md.f + ' Hz</b> (' + md.nx + ',' + md.ny + ',' + md.nz + ')<br>Axial W ' + v.w + ' m: ' + axial(v.w) + ' Hz<br>Axial D ' + v.d + ' m: ' + axial(v.d) + ' Hz<br>Axial H ' + H_ROOM_H + ' m: ' + axial(H_ROOM_H) + ' Hz';
+    } else modesDiv.innerHTML = '';
+  }
+}
+function updateSurfPanel(){
+  const box = document.getElementById('surfReflOn');
+  if(box) box.checked = !!state.surf.reflOn;
+  const wm = document.getElementById('surfWallMat');
+  if(wm) wm.value = state.surf.wallMat;
+  const fm = document.getElementById('surfFloorMat');
+  if(fm) fm.value = state.surf.floorMat;
+  const div = document.getElementById('surfAcoustics');
+  if(div){
+    const ac = roomAcoustics();
+    div.innerHTML = 'Volume ' + ac.V.toLocaleString() + ' m³ · Absorption ' + ac.A + ' sabins · <b>RT60 est. ' + ac.rt60.toFixed(2) + ' s</b> at ' + state.env.absFreq + ' Hz';
+  }
+}
+
 function spkDz(a){ return (typeof a.height === 'number' ? a.height : 5.5) - 1.5; }
 
 function beamSplAt(a, b, px, py){
@@ -1994,7 +2252,9 @@ function beamSplAt(a, b, px, py){
   while(diff > 180) diff -= 360;
   while(diff < -180) diff += 360;
   const fall = -14 * Math.pow(diff / Math.max(8, b.hBeam || 28), 2);
-  return 104 + (b.gain || 0) - 20 * Math.log10(Math.max(2, dist)) + Math.max(-32, fall);
+  let spl = 104 + (b.gain || 0) - 20 * Math.log10(Math.max(2, dist)) + Math.max(-32, fall);
+  if(state.env && state.env.absOn) spl -= alphaAir() * dist;
+  return spl;
 }
 
 function probeTaggedList(){
@@ -2133,7 +2393,7 @@ function updateProbePanel(){
     html += '<div>Tagged sum: <b>' + c.taggedSum.toFixed(1) + ' dB</b> at target ' + state.probeTarget + ' dB · spread ' + c.spread.toFixed(1) + ' dB</div>';
     if(state._probeLimited) html += '<div style="color:#f97316">Balance limited: a tagged beam hit its gain limit.</div>';
     c.list.filter(function(it){ return it.tagged && it.active; }).forEach(function(it){
-      html += '<div>' + it.label + ': ' + it.spl.toFixed(1) + ' dB · ' + it.dist.toFixed(2) + ' m · ' + (it.dist / 343 * 1000).toFixed(1) + ' ms</div>';
+      html += '<div>' + it.label + ': ' + it.spl.toFixed(1) + ' dB · ' + it.dist.toFixed(2) + ' m · ' + (it.dist / soundSpeed() * 1000).toFixed(1) + ' ms</div>';
     });
   } else {
     html += '<div>No beams tagged yet. Pick a beam above and tick "Tag beam to probe".</div>';
@@ -2304,7 +2564,9 @@ function exportJSON(){
     tags: state.tags,
     blocks: state.blocks,
     probe: state.probe,
-    probeTarget: state.probeTarget
+    probeTarget: state.probeTarget,
+    env: state.env,
+    surf: state.surf
   };
   const blob = new Blob([JSON.stringify(design, null, 2)], {type: 'application/json'});
   const url = URL.createObjectURL(blob);
@@ -2330,6 +2592,8 @@ function importJSON(e){
       state.blocks = Array.isArray(design.blocks) ? design.blocks : [];
       state.probe = (design.probe && isFinite(design.probe.x) && isFinite(design.probe.y)) ? { x: design.probe.x, y: design.probe.y } : null;
       if(typeof design.probeTarget === 'number' && isFinite(design.probeTarget)) state.probeTarget = design.probeTarget;
+      if(design.env) state.env = Object.assign(defaultEnv(), design.env);
+      if(design.surf) state.surf = Object.assign(defaultSurf(), design.surf);
       normalizeArrays();
       state.selectedArrayId = state.arrays[0] ? state.arrays[0].id : 1;
       state.selectedObject = null;
@@ -2384,6 +2648,8 @@ function resetDesign(){
   state.tags = defaultTags();
   state.probe = null;
   state.probeTarget = 80;
+  state.env = defaultEnv();
+  state.surf = defaultSurf();
   state.zoneTargets = {};
   state.blocks = [];
   state.undoStack = [];

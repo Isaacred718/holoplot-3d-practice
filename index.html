@@ -183,6 +183,45 @@
         </section>
 
         <section class="panel-section">
+          <div class="panel-header">Environment</div>
+          <div class="panel-body">
+            <div class="row">
+              <button data-env-preset="std">Standard 20°/50%</button>
+              <button data-env-preset="hot">Hot 32°/80%</button>
+              <button data-env-preset="cold">Cold 5°/20%</button>
+            </div>
+            <label>Temperature <input type="range" id="envTemp" min="-10" max="40" step="0.5"> <span id="envTempVal"></span></label>
+            <label>Humidity <input type="range" id="envRh" min="5" max="100" step="1"> <span id="envRhVal"></span></label>
+            <label>Pressure <input type="range" id="envPress" min="800" max="1050" step="1"> <span id="envPressVal"></span></label>
+            <div class="mono" id="envSpeed"></div>
+            <div class="row">
+              <label><input type="checkbox" id="envAbsOn"> Air absorption</label>
+              <label>at <select id="envAbsFreq"><option>125</option><option>250</option><option>500</option><option selected>1000</option><option>2000</option><option>4000</option><option>8000</option></select> Hz</label>
+            </div>
+            <div class="mono" id="envAlpha" style="font-size:12px"></div>
+            <div class="row">
+              <label><input type="checkbox" id="envModesOn"> Room modes overlay</label>
+            </div>
+            <label>Mode freq <input type="range" id="envModeFreq" min="30" max="150" step="1"> <span id="envModeFreqVal"></span></label>
+            <div class="mono" id="envModes" style="font-size:12px"></div>
+            <p class="hint">Simplified environmental model — practice values, not a prediction. Pressure barely moves the speed of sound (that is the teaching point); it feeds air density and the absorption term instead.</p>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <div class="panel-header">Room &amp; surfaces</div>
+          <div class="panel-body">
+            <div class="row">
+              <label><input type="checkbox" id="surfReflOn"> Reflections + reverb</label>
+            </div>
+            <label>Wall material <select id="surfWallMat"><option value="concrete">Concrete</option><option value="brick">Brick</option><option value="wood">Wood panel</option><option value="glass">Glass</option><option value="curtain">Heavy curtain</option><option value="panel">Acoustic panel</option></select></label>
+            <label>Floor <select id="surfFloorMat"><option value="empty">Empty floor</option><option value="audience" selected>Seated audience</option></select></label>
+            <div class="mono" id="surfAcoustics" style="font-size:12px"></div>
+            <p class="hint">First-order image-source reflections plus a Sabine diffuse field, summed in the power domain. Materials use simplified typical absorption coefficients; RT60 is an estimate. Off = direct sound only, the baseline. Custom room outlines live in the 2D app; here the venue rectangle is the room.</p>
+          </div>
+        </section>
+
+        <section class="panel-section">
           <div class="panel-header">Layers</div>
           <div class="panel-body">
             <div class="tag-row"><label><input type="checkbox" data-layer="Main" checked> Main</label></div>
