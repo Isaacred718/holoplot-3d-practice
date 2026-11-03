@@ -808,13 +808,20 @@ function buildCoverage(){
   zoneStatsDiv.innerHTML = '<div style="margin-top:4px;font-weight:600;">Zones:</div>';
   result.zones.forEach(function(z){
     const div = document.createElement('div');
-    div.textContent = z.name + ': ' + z.avg.toFixed(1) + ' dB';
+    div.textContent = z.name + ': ' + z.avg.toFixed(1) + ' dB (target ' + z.target + '±' + z.tol + ') ' + (z.inTol ? '✓' : '✗');
+    div.style.color = z.inTol ? '#4ade80' : '#f87171';
     zoneStatsDiv.appendChild(div);
   });
+  const goalDiv = document.createElement('div');
+  goalDiv.style.marginTop = '4px';
+  goalDiv.innerHTML = '<b>Goal score: ' + result.goal + '%</b> of audience cells inside their zone target' + (result.allZonesInTol ? ' · all zones in tolerance ✓' : '');
+  zoneStatsDiv.appendChild(goalDiv);
+  renderDrills(result);
   updateProbePanel();
   updateEnvPanel();
   updateSurfPanel();
   buildModes();
+  renderLessons();
 }
 
 // ---------------------------------------------------------------------------
@@ -1760,6 +1767,29 @@ function initUI(){
   document.getElementById('surfReflOn').addEventListener('change', function(e){ state.surf.reflOn = e.target.checked; buildCoverage(); saveState(); setStatus('Reflections ' + (state.surf.reflOn ? 'on: image-source reflections plus Sabine reverb join the direct sound.' : 'off: direct sound only.')); });
   document.getElementById('surfWallMat').addEventListener('change', function(e){ state.surf.wallMat = e.target.value; buildVenue(); buildCoverage(); saveState(); });
   document.getElementById('surfFloorMat').addEventListener('change', function(e){ state.surf.floorMat = e.target.value; buildCoverage(); saveState(); });
+  document.getElementById('drillsList').addEventListener('click', function(e){
+    const btn = e.target.closest('[data-drill]');
+    if(!btn || btn.disabled) return;
+    markProgressDone(btn.getAttribute('data-drill'));
+    buildCoverage();
+    setStatus('Drill claimed. Progress saved on this device.');
+  });
+  document.getElementById('lessonsList').addEventListener('click', function(e){
+    const tog = e.target.closest('[data-lesson-toggle]');
+    if(tog){
+      const id = tog.getAttribute('data-lesson-toggle');
+      progress.openLesson = progress.openLesson === id ? null : id;
+      saveProgress();
+      renderLessons();
+      return;
+    }
+    const doneBtn = e.target.closest('[data-lesson-done]');
+    if(doneBtn && !doneBtn.disabled){
+      markProgressDone(doneBtn.getAttribute('data-lesson-done'));
+      renderLessons();
+      setStatus('Lesson marked complete. Progress saved on this device.');
+    }
+  });
   document.getElementById('btnRecompute').addEventListener('click', function(){
     buildCoverage();
   });
@@ -2239,6 +2269,70 @@ function updateSurfPanel(){
     const ac = roomAcoustics();
     div.innerHTML = 'Volume ' + ac.V.toLocaleString() + ' m³ · Absorption ' + ac.A + ' sabins · <b>RT60 est. ' + ac.rt60.toFixed(2) + ' s</b> at ' + state.env.absFreq + ' Hz';
   }
+}
+
+
+/* ================= LESSONS & DRILLS (ported from the 2D app) =================
+   Same lesson texts and drill goals as the 2D practice app. Progress lives in
+   its own localStorage key so it survives design resets. */
+const H_LESSONS_3D = [
+  { id: 'h1', title: '1 · What HOLOPLOT does differently', body: "Conventional line arrays throw sound in a fixed pattern. HOLOPLOT X1/X2 use 3D Audio-Beamforming: hundreds of drivers are driven individually so you synthesize beams and aim them at zones — and create quiet zones where you don't want sound. In Plan, you don't just place a speaker, you design coverage." },
+  { id: 'h2', title: '2 · Beams, azimuth & tilt', body: 'Azimuth steers a beam left/right in plan view. Tilt / elevation aims it up/down in side view — critical for balconies and raked seating. Try it: drag Tilt to +8° and watch the Balcony zone light up while Stalls cool down.' },
+  { id: 'h3', title: '3 · Beam width = control vs. throw', body: 'Narrow beams (small °) throw farther with less spill but leave gaps between zones. Wide beams fill evenly up close but spill onto walls and ceilings, hurting intelligibility. Uniformity within ±3 dB across a zone is a pro target.' },
+  { id: 'h4', title: '4 · Multiple beams from one array', body: "One HOLOPLOT array can emit several independent beams at different zones, levels and EQ. That's why the drill below asks you to run two arrays / beams: one for Stalls, one for Balcony, at matched SPL." },
+  { id: 'h5', title: '5 · Reading an SPL map honestly', body: "Red isn't 'better' — it's louder. Aim for one even colour across the audience, low energy outside it, and no hot spot at FOH. Check Avg, Uniformity (±) and Spill in the readout after every move, just like in Plan's simulation." }
+];
+const H_DRILLS_3D = [
+  { id: 'hd1', title: 'Drill A — Even Stalls', goal: 'Avg SPL 82–92 dB in the audience AND uniformity ≤ 6 dB', test: function(s){ return s.avg >= 82 && s.avg <= 92 && s.uni <= 6; } },
+  { id: 'hd2', title: 'Drill B — Tame the spill', goal: 'Keep avg ≥ 80 dB while spill cells (>75 dB outside audience) ≤ 18%', test: function(s){ return s.avg >= 80 && s.spill <= 18; } },
+  { id: 'hd3', title: 'Drill C — Two-zone balance', goal: 'Run 2+ arrays on, avg 84–94 dB, uniformity ≤ 4.5 dB', needs2: true, test: function(s){ return s.avg >= 84 && s.avg <= 94 && s.uni <= 4.5; } },
+  { id: 'hd4', title: 'Drill D — Hit the target', goal: "Bring EVERY zone's average inside its practice target ± tolerance (all zone chips green). Start: at least one zone is out — steer, balance gains, or add a beam aimed at the weak zone.", test: function(s, c){ return !!(c && c.allZonesInTol); } }
+];
+const PROGRESS_KEY = 'holoplot-3d-progress-v1';
+function loadProgress(){
+  try {
+    const p = JSON.parse(localStorage.getItem(PROGRESS_KEY) || '{}');
+    return { done: Array.isArray(p.done) ? p.done : [], openLesson: p.openLesson || null };
+  } catch(e){ return { done: [], openLesson: null }; }
+}
+function saveProgress(){ try { localStorage.setItem(PROGRESS_KEY, JSON.stringify(progress)); } catch(e){} }
+let progress = loadProgress();
+function markProgressDone(id){
+  if(!progress.done.includes(id)){ progress.done.push(id); saveProgress(); }
+}
+function escHtml(t){
+  return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function renderDrills(result){
+  const box = document.getElementById('drillsList');
+  if(!box || !result) return;
+  const s = result.stats;
+  const arraysOn = state.arrays.filter(function(a){ return a.on; }).length;
+  box.innerHTML = H_DRILLS_3D.map(function(d){
+    const pass = d.test(s, result) && (!d.needs2 || arraysOn >= 2);
+    const isDone = progress.done.includes(d.id);
+    const status = isDone ? '✓ DONE' : (pass ? 'READY ✓' : 'IN PROGRESS');
+    const color = isDone ? '#4ade80' : (pass ? '#fbbf24' : '#9ca3af');
+    return '<div class="drill-card">'
+      + '<div class="row" style="justify-content:space-between"><b>' + escHtml(d.title) + '</b><span style="color:' + color + ';font-weight:700;font-size:12px">' + status + '</span></div>'
+      + '<p class="hint">' + escHtml(d.goal) + '</p>'
+      + '<p class="mono" style="font-size:12px">Now: avg ' + s.avg.toFixed(1) + ' dB · ±' + s.uni.toFixed(1) + ' dB · spill ' + s.spill + '% · arrays on ' + arraysOn + '</p>'
+      + '<button data-drill="' + d.id + '"' + ((!pass || isDone) ? ' disabled' : '') + '>' + (isDone ? 'Completed' : (pass ? 'Claim drill ✓' : 'Keep steering…')) + '</button>'
+      + '</div>';
+  }).join('');
+}
+function renderLessons(){
+  const box = document.getElementById('lessonsList');
+  if(!box) return;
+  box.innerHTML = H_LESSONS_3D.map(function(l){
+    const isOpen = progress.openLesson === l.id;
+    const isDone = progress.done.includes(l.id);
+    return '<div class="drill-card">'
+      + '<button data-lesson-toggle="' + l.id + '" style="width:100%;text-align:left"><b>' + escHtml(l.title) + '</b> <span style="float:right">' + (isDone ? '✓ Done' : (isOpen ? '▾' : '▸')) + '</span></button>'
+      + (isOpen ? '<p style="font-size:13px;margin:8px 0">' + escHtml(l.body) + '</p>'
+        + '<button data-lesson-done="' + l.id + '"' + (isDone ? ' disabled' : '') + '>' + (isDone ? 'Completed ✓' : 'Mark complete') + '</button>' : '')
+      + '</div>';
+  }).join('');
 }
 
 function spkDz(a){ return (typeof a.height === 'number' ? a.height : 5.5) - 1.5; }
