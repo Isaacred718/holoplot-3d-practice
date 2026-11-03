@@ -1641,6 +1641,49 @@ function initUI(){
     }
   }
 
+  // Stream Deck layer: the deck sends F13-F24 hotkeys (Elgato Hotkey
+  // actions). Each one drives the same handler as its on-screen control.
+  function deckKey(key, shift){
+    if(shift){
+      if(key === 'F13'){
+        const ids = VENUES.map(function(v){ return v.id; });
+        const nxt = ids[(ids.indexOf(state.venueId) + 1) % ids.length];
+        const vs = document.getElementById('venueSelect');
+        vs.value = nxt;
+        if(vs.onchange) vs.onchange();
+        setStatus('Deck: venue ' + nxt + '.');
+      }
+      else if(key === 'F14'){
+        const rs = document.getElementById('resSelect');
+        rs.value = state.resMode === 'high' ? 'low' : 'high';
+        rs.dispatchEvent(new Event('change'));
+        setStatus('Deck: coverage resolution ' + rs.value + '.');
+      }
+      else if(key === 'F15'){
+        const st = document.getElementById('snapToggle');
+        st.checked = !st.checked;
+        st.dispatchEvent(new Event('change'));
+        setStatus('Deck: snap ' + (state.snap ? 'on' : 'off') + '.');
+      }
+      else if(key === 'F16'){
+        document.getElementById('shortcutsModal').classList.toggle('active');
+      }
+      return;
+    }
+    const tools = { F13: 'select', F14: 'orbit', F15: 'pan', F16: 'rectangle',
+                    F17: 'pushpull', F18: 'move', F19: 'tape', F20: 'eraser' };
+    if(tools[key]){ setTool(tools[key]); setStatus('Deck: ' + tools[key] + ' tool.'); return; }
+    if(key === 'F21'){ setCameraHome(); setStatus('Deck: Zoom Extents.'); return; }
+    if(key === 'F22'){ undo(); return; }
+    if(key === 'F23'){ saveState(); setStatus('Deck: design saved.'); return; }
+    if(key === 'F24'){
+      const sel = state.selectedObject;
+      if(sel && sel.type === 'block' && deleteBlock(sel.id)) setStatus('Deck: block deleted.');
+      else setStatus('Deck: Delete needs a selected block.');
+      return;
+    }
+  }
+
   document.addEventListener('keydown', function(e){
     const inField = e.target && e.target.closest && e.target.closest('input,textarea,select');
     const mod = e.ctrlKey || e.metaKey;
@@ -1665,6 +1708,11 @@ function initUI(){
       return;
     }
     if(inField) return;
+    if(/^F(1[3-9]|2[0-4])$/.test(e.key)){
+      e.preventDefault();
+      deckKey(e.key, e.shiftKey);
+      return;
+    }
     if(mod || e.altKey) return;
     if(e.key === ' ' || e.code === 'Space'){
       e.preventDefault();
@@ -1943,6 +1991,16 @@ function resetDesign(){
 // Initialize
 loadState();
 window.addEventListener('DOMContentLoaded', function(){
-  initThree();
+  try {
+    initThree();
+  } catch (err) {
+    // A WebGL failure must not kill the whole UI: tools, panels and
+    // shortcuts still init, and the status bar names the problem.
+    window.__hpThreeError = String(err && err.message || err);
+  }
   initUI();
+  if (window.__hpThreeError) {
+    setStatus('3D view failed to start (' + window.__hpThreeError + '). Tools and panels still work; try Chrome/Edge with hardware acceleration on.');
+  }
+  window.__hpBooted = true;
 });

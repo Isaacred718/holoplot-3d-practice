@@ -187,12 +187,35 @@
           <tr><td><b>0-9 . -</b></td><td>Start typing in Measurements</td><td><b>?</b></td><td>This panel</td></tr>
         </table>
         <p>While a tool is active, just start typing a number: it lands in the Measurements box, same as SketchUp. Enter applies it.</p>
+        <div class="modal-header" style="margin-top:14px">Stream Deck (F-key layer)</div>
+        <table class="sc-table">
+          <tr><td><b>F13</b></td><td>Select</td><td><b>F14</b></td><td>Orbit</td></tr>
+          <tr><td><b>F15</b></td><td>Hand</td><td><b>F16</b></td><td>Rectangle</td></tr>
+          <tr><td><b>F17</b></td><td>Push/Pull</td><td><b>F18</b></td><td>Move</td></tr>
+          <tr><td><b>F19</b></td><td>Tape Measure</td><td><b>F20</b></td><td>Eraser</td></tr>
+          <tr><td><b>F21</b></td><td>Zoom Extents</td><td><b>F22</b></td><td>Undo</td></tr>
+          <tr><td><b>F23</b></td><td>Save design</td><td><b>F24</b></td><td>Delete block</td></tr>
+          <tr><td><b>Shift+F13</b></td><td>Next venue</td><td><b>Shift+F14</b></td><td>Resolution Low/High</td></tr>
+          <tr><td><b>Shift+F15</b></td><td>Snap on/off</td><td><b>Shift+F16</b></td><td>This panel</td></tr>
+        </table>
+        <p>One Elgato <b>Hotkey</b> action per deck button, sending the F-key above. The app tab must be the focused one in a desktop browser (a USB deck cannot drive iPad Safari). <a href="streamdeck-keymap.json" download>Download the key-map JSON</a> · layout notes in STREAMDECK.md in the repo.</p>
       </div>
       <div class="modal-footer"><button id="btnShortcutsClose">Close</button></div>
     </div>
   </div>
 
   <input type="file" id="fileImport" accept="application/json" style="display:none">
+  <script>
+    // Boot watchdog: if the module app has not booted in 8 s (missing file,
+    // blocked WebGL, offline), say so in the status bar instead of sitting
+    // silently dead.
+    window.setTimeout(function(){
+      if(!window.__hpBooted){
+        var el = document.getElementById('statusBar');
+        if(el) el.textContent = 'App failed to start. Check your connection and hard-reload (Ctrl/Cmd+Shift+R). If it persists, the browser console shows the failing file.';
+      }
+    }, 8000);
+  </script>
   <script type="module" src="app.js"></script>
 </body>
 </html>
