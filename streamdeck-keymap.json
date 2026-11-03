@@ -1,1 +1,114 @@
-{"app":"https://isaacred718.github.io/holoplot-3d-practice/","howItWorks":"Each Stream Deck button holds ONE Elgato 'Hotkey' action that sends the listed key. The web app listens for F13-F24 (plus the Shift row) and drives the same code as the on-screen control. The browser tab with the app must be focused. A USB Stream Deck cannot control iPad Safari; plug the deck into the Mac/PC running the browser.","layoutAssumption":"15-key deck (MK.2 class), 3 rows of 5. Any deck works: only the button placement suggestion changes.","name":"Holoplot 3D — Venue Planner (Practice) — Stream Deck key map","page":[{"action":"Select tool","hotkey":"F13","position":"row1-1","title":"Select"},{"action":"Orbit tool","hotkey":"F14","position":"row1-2","title":"Orbit"},{"action":"Hand (pan) tool","hotkey":"F15","position":"row1-3","title":"Hand"},{"action":"Rectangle tool","hotkey":"F16","position":"row1-4","title":"Rectangle"},{"action":"Push/Pull tool","hotkey":"F17","position":"row1-5","title":"Push/Pull"},{"action":"Move tool","hotkey":"F18","position":"row2-1","title":"Move"},{"action":"Tape Measure tool","hotkey":"F19","position":"row2-2","title":"Tape"},{"action":"Eraser tool","hotkey":"F20","position":"row2-3","title":"Eraser"},{"action":"Zoom Extents (frame venue)","hotkey":"F21","position":"row2-4","title":"Zoom Ext."},{"action":"Undo last block change","hotkey":"F22","position":"row2-5","title":"Undo"},{"action":"Save design","hotkey":"F23","position":"row3-1","title":"Save"},{"action":"Delete selected block","hotkey":"F24","position":"row3-2","title":"Delete"},{"action":"Next venue preset","hotkey":"Shift+F13","position":"row3-3","title":"Venue >"},{"action":"Coverage resolution Low/High","hotkey":"Shift+F14","position":"row3-4","title":"Res"},{"action":"Toggle snap; Shift+F16 opens the in-app shortcut panel","hotkey":"Shift+F15","position":"row3-5","title":"Snap"}],"version":"1.0"}
+{
+ "app": "https://isaacred718.github.io/holoplot-3d-practice/",
+ "howItWorks": "Each Stream Deck button holds ONE Elgato 'Hotkey' action that sends the listed key. The web app listens for F13-F24 (plus the Shift row) and drives the same code as the on-screen control. The browser tab with the app must be focused. A USB Stream Deck cannot control iPad Safari; plug the deck into the Mac/PC running the browser. If your keyboard has no F13-F24 to record from, use the altChord on each button instead (Ctrl+Option+key): the app treats both dialects the same.",
+ "layoutAssumption": "15-key deck (MK.2 class), 3 rows of 5. Any deck works: only the button placement suggestion changes.",
+ "name": "Holoplot 3D \u2014 Venue Planner (Practice) \u2014 Stream Deck key map",
+ "page": [
+  {
+   "action": "Select tool",
+   "altChord": "Ctrl+Opt+S",
+   "hotkey": "F13",
+   "position": "row1-1",
+   "title": "Select"
+  },
+  {
+   "action": "Orbit tool",
+   "altChord": "Ctrl+Opt+O",
+   "hotkey": "F14",
+   "position": "row1-2",
+   "title": "Orbit"
+  },
+  {
+   "action": "Hand (pan) tool",
+   "altChord": "Ctrl+Opt+H",
+   "hotkey": "F15",
+   "position": "row1-3",
+   "title": "Hand"
+  },
+  {
+   "action": "Rectangle tool",
+   "altChord": "Ctrl+Opt+R",
+   "hotkey": "F16",
+   "position": "row1-4",
+   "title": "Rectangle"
+  },
+  {
+   "action": "Push/Pull tool",
+   "altChord": "Ctrl+Opt+P",
+   "hotkey": "F17",
+   "position": "row1-5",
+   "title": "Push/Pull"
+  },
+  {
+   "action": "Move tool",
+   "altChord": "Ctrl+Opt+M",
+   "hotkey": "F18",
+   "position": "row2-1",
+   "title": "Move"
+  },
+  {
+   "action": "Tape Measure tool",
+   "altChord": "Ctrl+Opt+T",
+   "hotkey": "F19",
+   "position": "row2-2",
+   "title": "Tape"
+  },
+  {
+   "action": "Eraser tool",
+   "altChord": "Ctrl+Opt+E",
+   "hotkey": "F20",
+   "position": "row2-3",
+   "title": "Eraser"
+  },
+  {
+   "action": "Zoom Extents (frame venue)",
+   "altChord": "Ctrl+Opt+Z",
+   "hotkey": "F21",
+   "position": "row2-4",
+   "title": "Zoom Ext."
+  },
+  {
+   "action": "Undo last block change",
+   "altChord": "Ctrl+Opt+U",
+   "hotkey": "F22",
+   "position": "row2-5",
+   "title": "Undo"
+  },
+  {
+   "action": "Save design",
+   "altChord": "Ctrl+Opt+V",
+   "hotkey": "F23",
+   "position": "row3-1",
+   "title": "Save"
+  },
+  {
+   "action": "Delete selected block",
+   "altChord": "Ctrl+Opt+Backspace",
+   "hotkey": "F24",
+   "position": "row3-2",
+   "title": "Delete"
+  },
+  {
+   "action": "Next venue preset",
+   "altChord": "Ctrl+Opt+1",
+   "hotkey": "Shift+F13",
+   "position": "row3-3",
+   "title": "Venue >"
+  },
+  {
+   "action": "Coverage resolution Low/High",
+   "altChord": "Ctrl+Opt+2",
+   "hotkey": "Shift+F14",
+   "position": "row3-4",
+   "title": "Res"
+  },
+  {
+   "action": "Toggle snap; Shift+F16 opens the in-app shortcut panel",
+   "altChord": "Ctrl+Opt+3 (snap) / Ctrl+Opt+4 (panel)",
+   "hotkey": "Shift+F15",
+   "position": "row3-5",
+   "title": "Snap"
+  }
+ ],
+ "version": "1.0"
+}

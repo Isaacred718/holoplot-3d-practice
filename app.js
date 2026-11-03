@@ -1684,9 +1684,36 @@ function initUI(){
     }
   }
 
+  // Second deck dialect for keyboards without F13-F24 (every laptop):
+  // Ctrl+Option+letter chords, matched on e.code so Mac character
+  // production (Alt+letter inserts symbols) cannot confuse the map.
+  function deckChord(code){
+    const tools = { KeyS: 'select', KeyO: 'orbit', KeyH: 'pan', KeyR: 'rectangle',
+                    KeyP: 'pushpull', KeyM: 'move', KeyT: 'tape', KeyE: 'eraser' };
+    if(tools[code]){ setTool(tools[code]); setStatus('Deck: ' + tools[code] + ' tool.'); return; }
+    if(code === 'KeyZ'){ setCameraHome(); setStatus('Deck: Zoom Extents.'); return; }
+    if(code === 'KeyU'){ undo(); return; }
+    if(code === 'KeyV'){ saveState(); setStatus('Deck: design saved.'); return; }
+    if(code === 'Backspace'){
+      const sel = state.selectedObject;
+      if(sel && sel.type === 'block' && deleteBlock(sel.id)) setStatus('Deck: block deleted.');
+      else setStatus('Deck: Delete needs a selected block.');
+      return;
+    }
+    if(code === 'Digit1'){ deckKey('F13', true); return; }
+    if(code === 'Digit2'){ deckKey('F14', true); return; }
+    if(code === 'Digit3'){ deckKey('F15', true); return; }
+    if(code === 'Digit4'){ deckKey('F16', true); return; }
+  }
+
   document.addEventListener('keydown', function(e){
     const inField = e.target && e.target.closest && e.target.closest('input,textarea,select');
     const mod = e.ctrlKey || e.metaKey;
+    if(e.ctrlKey && e.altKey && e.code){
+      e.preventDefault();
+      deckChord(e.code);
+      return;
+    }
     if(mod && (e.key === 'z' || e.key === 'Z') && !e.shiftKey){
       e.preventDefault();
       undo();

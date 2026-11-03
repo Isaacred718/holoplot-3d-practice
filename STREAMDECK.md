@@ -42,3 +42,11 @@ Delete red, Save green, toggles grey.
 - Shift+F13 → venue cycles and the camera reframes.
 If a press does nothing, the tab was not focused, or that button's
 Hotkey action is not set to the exact F-key.
+
+## No F13-F24 on your keyboard? Use Ctrl+Option chords
+MacBook keyboards stop at F12, so an F22 cannot be pressed to record it.
+Every action also answers to a Ctrl+Option chord, which any keyboard can
+send: tools are Ctrl+Opt+S/O/H/R/P/M/T/E (same letters as the human
+shortcuts), Zoom Extents Ctrl+Opt+Z, Undo Ctrl+Opt+U, Save Ctrl+Opt+V,
+Delete Ctrl+Opt+Backspace, and Ctrl+Opt+1/2/3/4 = next venue, resolution,
+snap, panel. Record whichever dialect is easier per button; both work.
