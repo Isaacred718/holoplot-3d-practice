@@ -194,6 +194,9 @@ const state = {
   resMode: 'low',
   selectedArrayId: 1,
   selBeam: 0,
+  probe: null,
+  probeTarget: 80,
+  _probeLimited: false,
   selectedObject: null,
   tool: 'select',
   snap: true,
@@ -211,7 +214,9 @@ function saveState(){
       zoneTargets: state.zoneTargets,
       layerOn: state.layerOn,
       tags: state.tags,
-      blocks: state.blocks
+      blocks: state.blocks,
+      probe: state.probe,
+      probeTarget: state.probeTarget
     }));
   } catch(e){}
 }
@@ -229,6 +234,8 @@ function loadState(){
       if(parsed.zoneTargets) state.zoneTargets = parsed.zoneTargets;
       if(parsed.layerOn) state.layerOn = parsed.layerOn;
       normalizeArrays();
+      if(parsed.probe && isFinite(parsed.probe.x) && isFinite(parsed.probe.y)) state.probe = { x: parsed.probe.x, y: parsed.probe.y };
+      if(typeof parsed.probeTarget === 'number' && isFinite(parsed.probeTarget)) state.probeTarget = parsed.probeTarget;
       if(parsed.tags) state.tags = Object.assign(defaultTags(), parsed.tags);
       if(Array.isArray(parsed.blocks)) state.blocks = parsed.blocks;
     }
@@ -239,7 +246,7 @@ function loadState(){
 // Three.js setup
 let scene, camera, renderer, controls;
 let gridHelper, axesHelper;
-let venueGroup, zonesGroup, blocksGroup, arraysGroup, beamsGroup, coverageGroup;
+let venueGroup, zonesGroup, blocksGroup, arraysGroup, beamsGroup, coverageGroup, probeGroup;
 let selectionHelper = null;
 let raycaster = new THREE.Raycaster();
 let pointerNdc = new THREE.Vector2();
@@ -346,11 +353,14 @@ function initThree(){
   scene.add(beamsGroup);
   coverageGroup = new THREE.Group();
   scene.add(coverageGroup);
+  probeGroup = new THREE.Group();
+  scene.add(probeGroup);
 
   buildVenue();
   buildBlocks();
   buildArrays();
   buildCoverage();
+  buildProbe();
   buildOutliner();
   applyTagVisibility();
   attachPointerHandlers();
@@ -511,6 +521,7 @@ function findSelectedObject(){
   if(!state.selectedObject) return null;
   if(state.selectedObject.type === 'block') return blockMeshById(state.selectedObject.id);
   if(state.selectedObject.type === 'array') return arrayGroupById(state.selectedObject.id);
+  if(state.selectedObject.type === 'probe') return probeGroup;
   return null;
 }
 
@@ -548,6 +559,8 @@ function selectObject(type, id, opts){
     } else if(type === 'array'){
       const a = findArray(id);
       setStatus('Select: ' + (a ? a.name : ('array ' + id)) + ' selected.');
+    } else if(type === 'probe'){
+      setStatus('Select: ' + probePosText(state.probe) + '. Drag it with the Move tool.');
     } else {
       setStatus('Select: nothing selected.');
     }
@@ -743,6 +756,7 @@ function buildCoverage(){
     div.textContent = z.name + ': ' + z.avg.toFixed(1) + ' dB';
     zoneStatsDiv.appendChild(div);
   });
+  updateProbePanel();
 }
 
 // ---------------------------------------------------------------------------
@@ -780,6 +794,10 @@ function groundHit(ev){
 
 function pickObject(ev){
   updateRay(ev);
+  if(state.probe && probeGroup){
+    const probeHits = raycaster.intersectObjects(probeGroup.children, true);
+    if(probeHits.length) return { type: 'probe', id: 'probe', point: probeHits[0].point };
+  }
   if(blocksGroup.visible){
     const blockHits = raycaster.intersectObjects(blocksGroup.children, false);
     if(blockHits.length){
@@ -893,6 +911,8 @@ function moveBlockTo(b, x, y){
 function moveArrayTo(a, x, y){
   a.x = snapValue(x);
   a.y = snapValue(y);
+  probeSync();
+  buildProbe();
   buildArrays();
   buildCoverage();
   syncArrayPanel();
@@ -1134,6 +1154,13 @@ function handleMoveDown(ev, g, plan){
     g.grabDY = plan.y - b.y;
     setMeasurementsText(fmtNum(b.x) + ', ' + fmtNum(b.y), false);
     setStatus('Move: drag the block on the ground plane.');
+  } else if(target.type === 'probe'){
+    if(!state.probe){ g.mode = 'move-none'; return; }
+    g.mode = 'move-probe';
+    g.grabDX = plan.x - state.probe.x;
+    g.grabDY = plan.y - state.probe.y;
+    setMeasurementsText(fmtNum(state.probe.x) + ', ' + fmtNum(state.probe.y), false);
+    setStatus('Move: drag the probe on the ground plane.');
   } else {
     const a = findArray(target.id);
     if(!a){ g.mode = 'move-none'; return; }
@@ -1231,6 +1258,24 @@ function onPointerMove(ev){
         }
       }
     }
+  } else if(g && g.mode === 'move-probe'){
+    const plan = groundHit(ev);
+    if(plan && state.probe){
+      const v = hVenueById(state.venueId);
+      let nx = plan.x - g.grabDX;
+      let ny = plan.y - g.grabDY;
+      if(state.snap){ nx = snapValue(nx); ny = snapValue(ny); }
+      nx = clampNum(Math.round(nx * 10) / 10, -v.w / 2 + 1, v.w / 2 - 1);
+      ny = clampNum(Math.round(ny * 10) / 10, 1, v.d - 1);
+      if(nx !== state.probe.x || ny !== state.probe.y){
+        state.probe.x = nx; state.probe.y = ny;
+        g.changed = true;
+        probeSync();
+        buildProbe(); buildArrays(); buildCoverage();
+        setMeasurementsText(fmtNum(nx) + ', ' + fmtNum(ny), false);
+        setStatus('Move: ' + probePosText(state.probe) + '.');
+      }
+    }
   } else if(g && g.mode === 'move-array'){
     const plan = groundHit(ev);
     if(plan){
@@ -1313,6 +1358,8 @@ function onPointerUp(ev){
       } else if(state.undoStack.length){
         state.undoStack.pop();
       }
+    } else if(g.mode === 'move-probe'){
+      if(g.changed){ saveState(); setStatus(probePosText(state.probe) + '. Tagged beams re-aimed and re-balanced.'); }
     } else if(g.mode === 'move-array' && g.changed){
       saveState();
       buildOutliner();
@@ -1454,7 +1501,10 @@ function initUI(){
     clearPendingTools();
     buildVenue();
     buildBlocks();
+    if(state.probe){ const vv = hVenueById(state.venueId); state.probe.x = clampNum(state.probe.x, -vv.w / 2 + 1, vv.w / 2 - 1); state.probe.y = clampNum(state.probe.y, 1, vv.d - 1); }
+    probeSync();
     buildArrays();
+    buildProbe();
     buildCoverage();
     buildOutliner();
     setCameraHome();
@@ -1568,12 +1618,12 @@ function initUI(){
   document.getElementById('azRange').addEventListener('input', function(e){
     document.getElementById('azVal').textContent = e.target.value;
     const arr = getSelectedArray();
-    const b = getSelectedBeam(); if(b){ b.az = parseInt(e.target.value, 10); buildArrays(); buildCoverage(); saveState(); }
+    const b = getSelectedBeam(); if(b && b.probe && state.probe){ syncArrayPanel(); setStatus('Beam locked to probe: it aims itself. Untag it to aim by hand.'); } else if(b){ b.az = parseInt(e.target.value, 10); buildArrays(); buildCoverage(); saveState(); }
   });
   document.getElementById('tiltRange').addEventListener('input', function(e){
     document.getElementById('tiltVal').textContent = e.target.value;
     const arr = getSelectedArray();
-    const b = getSelectedBeam(); if(b){ b.tilt = parseInt(e.target.value, 10); buildArrays(); buildCoverage(); saveState(); }
+    const b = getSelectedBeam(); if(b && b.probe && state.probe){ syncArrayPanel(); setStatus('Beam locked to probe: it aims itself. Untag it to aim by hand.'); } else if(b){ b.tilt = parseInt(e.target.value, 10); buildArrays(); buildCoverage(); saveState(); }
   });
   document.getElementById('hBeamRange').addEventListener('input', function(e){
     document.getElementById('hBeamVal').textContent = e.target.value;
@@ -1601,6 +1651,35 @@ function initUI(){
   document.getElementById('resSelect').addEventListener('change', function(e){
     state.resMode = e.target.value;
     buildCoverage();
+  });
+  document.getElementById('btnProbeToggle').addEventListener('click', toggleProbe);
+  document.getElementById('beamProbe').addEventListener('change', function(e){
+    const b = getSelectedBeam();
+    if(!b) return;
+    if(e.target.checked && !state.probe){ e.target.checked = false; setStatus('Add a probe first, then tag beams to it.'); return; }
+    b.probe = e.target.checked;
+    refreshProbe();
+    setStatus(getSelectedArray().name + ' Beam ' + (state.selBeam + 1) + (b.probe ? ' tagged to probe: it now aims and balances itself.' : ' untagged: it keeps its current aim and gain.'));
+  });
+  document.getElementById('probeX').addEventListener('change', function(e){
+    if(!state.probe) return;
+    const v = hVenueById(state.venueId);
+    state.probe.x = clampNum(Math.round((parseFloat(e.target.value) || 0) * 10) / 10, -v.w / 2 + 1, v.w / 2 - 1);
+    refreshProbe();
+  });
+  document.getElementById('probeY').addEventListener('change', function(e){
+    if(!state.probe) return;
+    const v = hVenueById(state.venueId);
+    state.probe.y = clampNum(Math.round((parseFloat(e.target.value) || 0) * 10) / 10, 1, v.d - 1);
+    refreshProbe();
+  });
+  document.getElementById('btnTargetUp').addEventListener('click', function(){
+    state.probeTarget = clampNum(state.probeTarget + 1, 50, 100);
+    refreshProbe();
+  });
+  document.getElementById('btnTargetDown').addEventListener('click', function(){
+    state.probeTarget = clampNum(state.probeTarget - 1, 50, 100);
+    refreshProbe();
   });
   document.getElementById('btnRecompute').addEventListener('click', function(){
     buildCoverage();
@@ -1746,6 +1825,8 @@ function initUI(){
       else setStatus('Deck: Delete needs a selected block.');
       return;
     }
+    if(code === 'KeyG'){ toggleBeamProbeTag(); return; }
+    if(code === 'KeyJ'){ toggleProbe(); return; }
     if(code === 'Digit1'){ deckKey('F13', true); return; }
     if(code === 'Digit2'){ deckKey('F14', true); return; }
     if(code === 'Digit3'){ deckKey('F15', true); return; }
@@ -1901,6 +1982,201 @@ function getSelectedArray(){
 }
 
 
+
+function spkDz(a){ return (typeof a.height === 'number' ? a.height : 5.5) - 1.5; }
+
+function beamSplAt(a, b, px, py){
+  const dz = spkDz(a);
+  const dx = px - a.x, dy = py - a.y;
+  const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  const beamAng = Math.atan2(dx, dy) * 180 / Math.PI;
+  let diff = beamAng - b.az;
+  while(diff > 180) diff -= 360;
+  while(diff < -180) diff += 360;
+  const fall = -14 * Math.pow(diff / Math.max(8, b.hBeam || 28), 2);
+  return 104 + (b.gain || 0) - 20 * Math.log10(Math.max(2, dist)) + Math.max(-32, fall);
+}
+
+function probeTaggedList(){
+  const out = [];
+  state.arrays.forEach(function(a){ (a.beams || []).forEach(function(b, bi){ if(b.probe) out.push({ a: a, b: b, bi: bi }); }); });
+  return out;
+}
+
+function probeAim(){
+  if(!state.probe) return;
+  const p = state.probe;
+  probeTaggedList().forEach(function(t){
+    const dx = p.x - t.a.x, dy = p.y - t.a.y;
+    const dh = Math.max(0.5, Math.sqrt(dx * dx + dy * dy));
+    t.b.az = clampNum(Math.round(Math.atan2(dx, dy) * 180 / Math.PI * 10) / 10, -40, 40);
+    t.b.tilt = clampNum(Math.round(Math.atan2(-spkDz(t.a), dh) * 180 / Math.PI * 10) / 10, -15, 25);
+  });
+}
+
+function probeBalance(){
+  state._probeLimited = false;
+  if(!state.probe) return;
+  const T = probeTaggedList().filter(function(t){ return t.a.on && state.layerOn[t.b.layer] !== false; });
+  if(!T.length) return;
+  const C = state.probeTarget - 10 * Math.log10(T.length);
+  let limited = false;
+  T.forEach(function(t){
+    const base = beamSplAt(t.a, t.b, state.probe.x, state.probe.y) - (t.b.gain || 0);
+    const need = Math.round((C - base) * 10) / 10;
+    const g = clampNum(need, -12, 12);
+    if(Math.abs(g - need) > 0.001) limited = true;
+    t.b.gain = g;
+  });
+  state._probeLimited = limited;
+}
+
+function probeSync(){
+  if(!state.probe) return;
+  probeAim();
+  probeBalance();
+}
+
+function probeContribs(){
+  const list = [];
+  let tPow = 0, uPow = 0;
+  const tVals = [];
+  if(!state.probe) return { list: list, taggedSum: null, untaggedSum: null, total: null, spread: 0, taggedActive: 0 };
+  state.arrays.forEach(function(a){
+    (a.beams || []).forEach(function(b, bi){
+      const active = a.on && state.layerOn[b.layer] !== false;
+      const spl = active ? beamSplAt(a, b, state.probe.x, state.probe.y) : null;
+      const dx = state.probe.x - a.x, dy = state.probe.y - a.y;
+      const dist = Math.sqrt(dx * dx + dy * dy + spkDz(a) * spkDz(a));
+      list.push({ label: a.name + ' Beam ' + (bi + 1), tagged: !!b.probe, active: active, spl: spl, dist: dist });
+      if(active){
+        if(b.probe){ tPow += Math.pow(10, spl / 10); tVals.push(spl); }
+        else uPow += Math.pow(10, spl / 10);
+      }
+    });
+  });
+  const r1 = function(v){ return Math.round(v * 10) / 10; };
+  return {
+    list: list,
+    taggedSum: tPow > 0 ? r1(10 * Math.log10(tPow)) : null,
+    untaggedSum: uPow > 0 ? r1(10 * Math.log10(uPow)) : null,
+    total: (tPow + uPow) > 0 ? r1(10 * Math.log10(tPow + uPow)) : null,
+    spread: tVals.length > 1 ? r1(Math.max.apply(null, tVals) - Math.min.apply(null, tVals)) : 0,
+    taggedActive: tVals.length
+  };
+}
+
+function probePosText(p){
+  if(!p) return 'No probe';
+  const lr = p.x === 0 ? 'on centre' : (Math.abs(p.x).toFixed(1) + ' m ' + (p.x < 0 ? 'left' : 'right') + ' of centre');
+  return 'Probe: ' + p.y.toFixed(1) + ' m out, ' + lr;
+}
+
+function buildProbe(){
+  if(!probeGroup) return;
+  disposeGroup(probeGroup);
+  if(!state.probe) return;
+  const p = state.probe;
+  const amber = new THREE.MeshBasicMaterial({ color: 0xf59e0b });
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.5, 8), amber);
+  pole.position.set(p.x, 0.75, -p.y);
+  pole.userData = { type: 'probe' };
+  probeGroup.add(pole);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 20, 14), amber);
+  head.position.set(p.x, 1.5, -p.y);
+  head.userData = { type: 'probe' };
+  probeGroup.add(head);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.4, 32), new THREE.MeshBasicMaterial({ color: 0xf59e0b, side: THREE.DoubleSide, transparent: true, opacity: 0.85 }));
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(p.x, 0.06, -p.y);
+  ring.userData = { type: 'probe' };
+  probeGroup.add(ring);
+  probeTaggedList().forEach(function(t){
+    const from = new THREE.Vector3(t.a.x, (typeof t.a.height === 'number' ? t.a.height : 5.5), -t.a.y);
+    const to = new THREE.Vector3(p.x, 1.5, -p.y);
+    const geo = new THREE.BufferGeometry().setFromPoints([from, to]);
+    const line = new THREE.Line(geo, new THREE.LineDashedMaterial({ color: 0xf59e0b, dashSize: 0.4, gapSize: 0.25, transparent: true, opacity: 0.9 }));
+    line.computeLineDistances();
+    probeGroup.add(line);
+  });
+}
+
+function updateProbePanel(){
+  const btn = document.getElementById('btnProbeToggle');
+  const body = document.getElementById('probeBody');
+  if(!btn || !body) return;
+  btn.textContent = state.probe ? 'Remove probe' : 'Add probe';
+  body.hidden = !state.probe;
+  const tagBox = document.getElementById('beamProbe');
+  const selBeam = getSelectedBeam();
+  if(tagBox){
+    tagBox.disabled = !state.probe;
+    tagBox.checked = !!(selBeam && selBeam.probe && state.probe);
+  }
+  const locked = !!(selBeam && selBeam.probe && state.probe);
+  const azR = document.getElementById('azRange');
+  const tiltR = document.getElementById('tiltRange');
+  if(azR) azR.disabled = locked;
+  if(tiltR) tiltR.disabled = locked;
+  const lockNote = document.getElementById('beamLockNote');
+  if(lockNote) lockNote.textContent = locked ? 'Locked to probe' : '';
+  if(!state.probe) return;
+  document.getElementById('probePos').textContent = probePosText(state.probe);
+  const px = document.getElementById('probeX');
+  const py = document.getElementById('probeY');
+  if(px && document.activeElement !== px) px.value = state.probe.x;
+  if(py && document.activeElement !== py) py.value = state.probe.y;
+  document.getElementById('probeTargetVal').textContent = state.probeTarget;
+  const c = probeContribs();
+  let html = '';
+  if(c.taggedActive){
+    html += '<div>Tagged sum: <b>' + c.taggedSum.toFixed(1) + ' dB</b> at target ' + state.probeTarget + ' dB · spread ' + c.spread.toFixed(1) + ' dB</div>';
+    if(state._probeLimited) html += '<div style="color:#f97316">Balance limited: a tagged beam hit its gain limit.</div>';
+    c.list.filter(function(it){ return it.tagged && it.active; }).forEach(function(it){
+      html += '<div>' + it.label + ': ' + it.spl.toFixed(1) + ' dB · ' + it.dist.toFixed(2) + ' m · ' + (it.dist / 343 * 1000).toFixed(1) + ' ms</div>';
+    });
+  } else {
+    html += '<div>No beams tagged yet. Pick a beam above and tick "Tag beam to probe".</div>';
+  }
+  if(c.total !== null) html += '<div>Total at probe (all beams): ' + c.total.toFixed(1) + ' dB</div>';
+  document.getElementById('probeReadout').innerHTML = html;
+}
+
+function refreshProbe(){
+  probeSync();
+  buildProbe();
+  buildArrays();
+  buildCoverage();
+  syncArrayPanel();
+  updateProbePanel();
+  saveState();
+}
+
+function toggleProbe(){
+  if(state.probe){
+    state.probe = null;
+    state.arrays.forEach(function(a){ (a.beams || []).forEach(function(b){ b.probe = false; }); });
+    if(state.selectedObject && state.selectedObject.type === 'probe') state.selectedObject = null;
+    buildProbe(); buildArrays(); buildCoverage(); syncArrayPanel(); updateProbePanel(); saveState();
+    setStatus('Probe removed. All beam tags cleared.');
+  } else {
+    const v = hVenueById(state.venueId);
+    state.probe = { x: 0, y: Math.round(v.d * 0.45 * 10) / 10 };
+    refreshProbe();
+    setStatus(probePosText(state.probe) + '. Tag beams to it from the beam controls.');
+  }
+}
+
+function toggleBeamProbeTag(){
+  const b = getSelectedBeam();
+  const arr = getSelectedArray();
+  if(!b || !arr) return;
+  if(!state.probe){ setStatus('Deck: add a probe first (Ctrl+Opt+J).'); return; }
+  b.probe = !b.probe;
+  refreshProbe();
+  setStatus('Deck: ' + arr.name + ' Beam ' + (state.selBeam + 1) + (b.probe ? ' tagged to probe.' : ' untagged.'));
+}
+
 function getSelectedBeam(){
   const arr = getSelectedArray();
   if(!arr || !arr.beams || !arr.beams.length) return null;
@@ -2026,7 +2302,9 @@ function exportJSON(){
     zoneTargets: state.zoneTargets,
     layerOn: state.layerOn,
     tags: state.tags,
-    blocks: state.blocks
+    blocks: state.blocks,
+    probe: state.probe,
+    probeTarget: state.probeTarget
   };
   const blob = new Blob([JSON.stringify(design, null, 2)], {type: 'application/json'});
   const url = URL.createObjectURL(blob);
@@ -2050,6 +2328,9 @@ function importJSON(e){
       if(design.layerOn) state.layerOn = design.layerOn;
       if(design.tags) state.tags = Object.assign(defaultTags(), design.tags);
       state.blocks = Array.isArray(design.blocks) ? design.blocks : [];
+      state.probe = (design.probe && isFinite(design.probe.x) && isFinite(design.probe.y)) ? { x: design.probe.x, y: design.probe.y } : null;
+      if(typeof design.probeTarget === 'number' && isFinite(design.probeTarget)) state.probeTarget = design.probeTarget;
+      normalizeArrays();
       state.selectedArrayId = state.arrays[0] ? state.arrays[0].id : 1;
       state.selectedObject = null;
       state.undoStack = [];
@@ -2058,7 +2339,9 @@ function importJSON(e){
       buildVenue();
       buildBlocks();
       buildArrays();
+      probeSync();
       buildCoverage();
+      buildProbe();
       buildOutliner();
       applyTagVisibility();
       setCameraHome();
@@ -2099,6 +2382,8 @@ function resetDesign(){
   state.arrays = defaultArrays();
   state.layerOn = defaultLayerOn();
   state.tags = defaultTags();
+  state.probe = null;
+  state.probeTarget = 80;
   state.zoneTargets = {};
   state.blocks = [];
   state.undoStack = [];
@@ -2114,6 +2399,7 @@ function resetDesign(){
   buildBlocks();
   buildArrays();
   buildCoverage();
+  buildProbe();
   buildOutliner();
   applyTagVisibility();
   setCameraHome();

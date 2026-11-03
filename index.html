@@ -109,6 +109,10 @@
               <button id="btnDelBeam">&#10005; Beam</button>
             </div>
             <div class="row">
+              <label><input type="checkbox" id="beamProbe"> Tag beam to probe</label>
+              <span id="beamLockNote"></span>
+            </div>
+            <div class="row">
               <label>Zone <select id="beamZone"></select></label>
               <label>Layer <select id="beamLayer"><option>Main</option><option>Balcony</option><option>Fill</option></select></label>
             </div>
@@ -154,6 +158,27 @@
             <div class="tag-row"><label><input type="checkbox" data-tag="Arrays" checked> Arrays</label></div>
             <div class="tag-row"><label><input type="checkbox" data-tag="Beams" checked> Beams</label></div>
             <div class="tag-row"><label><input type="checkbox" data-tag="Coverage" checked> Coverage</label></div>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <div class="panel-header">Probe</div>
+          <div class="panel-body">
+            <div class="row">
+              <button id="btnProbeToggle">Add probe</button>
+            </div>
+            <div id="probeBody" hidden>
+              <div id="probePos" class="mono"></div>
+              <div class="row">
+                <label>X <input type="number" id="probeX" step="0.1"></label>
+                <label>Y <input type="number" id="probeY" step="0.1"></label>
+              </div>
+              <div class="row">
+                <label>Target <button id="btnTargetDown">&minus;</button> <span id="probeTargetVal">80</span> dB <button id="btnTargetUp">+</button></label>
+              </div>
+              <div id="probeReadout" class="mono" style="font-size:12px"></div>
+            </div>
+            <p class="hint">A listener standing in the audience. Tag a beam to the probe and it aims at the probe and balances its level against the other tagged beams. Drag it with the Move tool.</p>
           </div>
         </section>
 
@@ -218,7 +243,7 @@
           <tr><td><b>Shift+F15</b></td><td>Snap on/off</td><td><b>Shift+F16</b></td><td>This panel</td></tr>
         </table>
         <p>One Elgato <b>Hotkey</b> action per deck button, sending the F-key above. The app tab must be the focused one in a desktop browser (a USB deck cannot drive iPad Safari). <a href="streamdeck-keymap.json" download>Download the key-map JSON</a> · layout notes in STREAMDECK.md in the repo.</p>
-        <p><b>No F13-F24 on your keyboard?</b> Record these Ctrl+Option chords on the deck instead, they do the same things: ⌃⌥S Select · ⌃⌥O Orbit · ⌃⌥H Hand · ⌃⌥R Rectangle · ⌃⌥P Push/Pull · ⌃⌥M Move · ⌃⌥T Tape · ⌃⌥E Eraser · ⌃⌥Z Zoom Extents · ⌃⌥U Undo · ⌃⌥V Save · ⌃⌥⌫ Delete · ⌃⌥1 Venue · ⌃⌥2 Res · ⌃⌥3 Snap · ⌃⌥4 Panel.</p>
+        <p><b>No F13-F24 on your keyboard?</b> Record these Ctrl+Option chords on the deck instead, they do the same things: ⌃⌥S Select · ⌃⌥O Orbit · ⌃⌥H Hand · ⌃⌥R Rectangle · ⌃⌥P Push/Pull · ⌃⌥M Move · ⌃⌥T Tape · ⌃⌥E Eraser · ⌃⌥Z Zoom Extents · ⌃⌥U Undo · ⌃⌥V Save · ⌃⌥⌫ Delete · ⌃⌥1 Venue · ⌃⌥2 Res · ⌃⌥3 Snap · ⌃⌥4 Panel · ⌃⌥G Tag beam to probe · ⌃⌥J Add/remove probe.</p>
       </div>
       <div class="modal-footer"><button id="btnShortcutsClose">Close</button></div>
     </div>
