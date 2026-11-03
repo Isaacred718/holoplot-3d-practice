@@ -249,6 +249,7 @@ const state = {
 };
 
 function saveState(){
+  scheduleRemotePush();
   try {
     localStorage.setItem('holoplot-3d-v1', JSON.stringify({
       venueId: state.venueId,
@@ -1790,6 +1791,7 @@ function initUI(){
       setStatus('Lesson marked complete. Progress saved on this device.');
     }
   });
+  document.getElementById('btnRemote').addEventListener('click', toggleRemote);
   document.getElementById('btnRecompute').addEventListener('click', function(){
     buildCoverage();
   });
@@ -2333,6 +2335,169 @@ function renderLessons(){
         + '<button data-lesson-done="' + l.id + '"' + (isDone ? ' disabled' : '') + '>' + (isDone ? 'Completed ✓' : 'Mark complete') + '</button>' : '')
       + '</div>';
   }).join('');
+}
+
+
+/* ================= REMOTE (Mac hub sync) =================
+   When this copy of the app is opened from the Mac hub (the /3d/ address on
+   port 8741), it can sync the design with the hub state: the iPad remote
+   page and the SketchUp extension see the same design. Wire protocol v1
+   (see PROTOCOL.md): poll /state, apply newer versions from others, POST
+   local edits debounced, never echo an applied state back. The hub schema
+   is flat (single beam per array), so sync carries: venue, resolution,
+   array position/on, and each array's FIRST beam (aim, width, gain, zone,
+   layer). Heights, extra beams, blocks, probe, environment and surfaces
+   stay local to this device. */
+const remote = { on: false, version: -1, timer: null, pushTimer: null, applying: false };
+const remoteClientId = '3d-' + Math.random().toString(36).slice(2, 6);
+const REMOTE_IDS = { 1: 'L', 2: 'R', 3: 'C' };
+const REMOTE_IDS_BACK = { L: 1, R: 2, C: 3 };
+
+function remoteToken(){
+  try { return new URLSearchParams(window.location.search).get('t') || ''; } catch(e){ return ''; }
+}
+function setRemoteStatus(msg){
+  const el = document.getElementById('remoteStatus');
+  if(el) el.textContent = msg;
+}
+function designToFlat(){
+  return {
+    venue: state.venueId,
+    res: state.resMode,
+    arrays: state.arrays.map(function(a){
+      const b = (a.beams || [])[0] || {};
+      return {
+        id: REMOTE_IDS[a.id] || 'L',
+        name: a.name,
+        x: a.x, y: a.y, on: !!a.on,
+        az: b.az || 0, tilt: b.tilt || 0, hBeam: b.hBeam || 28, vBeam: b.vBeam || 18,
+        gain: b.gain || 0, zone: b.zone || '', layer: b.layer || 'Main'
+      };
+    })
+  };
+}
+function applyFlatDesign(design){
+  if(!design || !Array.isArray(design.arrays)) return;
+  remote.applying = true;
+  try {
+    if(design.venue && hVenueById(design.venue).id === design.venue){
+      state.venueId = design.venue;
+      const vs = document.getElementById('venueSelect');
+      if(vs) vs.value = design.venue;
+      const vn = document.getElementById('venueName');
+      if(vn) vn.textContent = hVenueById(design.venue).label;
+    }
+    if(design.res && H_RES_STEP[design.res]){
+      state.resMode = design.res;
+      const rs = document.getElementById('resSelect');
+      if(rs) rs.value = design.res;
+    }
+    const clampN = function(v, lo, hi, dflt){ const n = (typeof v === 'number' && isFinite(v)) ? v : dflt; return Math.max(lo, Math.min(hi, n)); };
+    design.arrays.forEach(function(fa){
+      const local = state.arrays.find(function(a){ return a.id === REMOTE_IDS_BACK[fa.id]; });
+      if(!local) return;
+      local.x = clampN(fa.x, -40, 40, local.x);
+      local.y = clampN(fa.y, 0, 60, local.y);
+      local.on = !!fa.on;
+      if(!local.beams || !local.beams.length) local.beams = [defaultBeam()];
+      const b = local.beams[0];
+      b.az = clampN(fa.az, -40, 40, b.az);
+      b.tilt = clampN(fa.tilt, -15, 25, b.tilt);
+      b.hBeam = clampN(fa.hBeam, 10, 60, b.hBeam);
+      b.vBeam = clampN(fa.vBeam, 8, 40, b.vBeam);
+      b.gain = clampN(fa.gain, -12, 12, b.gain);
+      if(typeof fa.zone === 'string') b.zone = fa.zone;
+      if(typeof fa.layer === 'string') b.layer = fa.layer;
+    });
+    state._arrCache = {};
+    state.arrays.forEach(function(a){ a._arrCache = undefined; });
+    if(state.design) state.design._arrCache = {};
+    designCacheClear();
+    buildVenue();
+    buildBlocks();
+    buildArrays();
+    buildCoverage();
+    saveState();
+    syncArrayPanel();
+  } finally {
+    remote.applying = false;
+  }
+}
+function designCacheClear(){
+  // HP_compute caches per-array energies on each design object it is given;
+  // buildCoverage creates a fresh design object per call, so nothing to clear.
+}
+function scheduleRemotePush(){
+  if(!remote.on || remote.applying) return;
+  if(remote.pushTimer) clearTimeout(remote.pushTimer);
+  remote.pushTimer = setTimeout(pushRemote, 800);
+}
+function remoteHeaders(){
+  const h = { 'Content-Type': 'application/json' };
+  const t = remoteToken();
+  if(t) h['X-HP-Token'] = t;
+  return h;
+}
+function pushRemote(){
+  if(!remote.on) return;
+  fetch('/state', { method: 'POST', headers: remoteHeaders(), body: JSON.stringify({ design: designToFlat(), updatedBy: remoteClientId }) })
+    .then(function(r){ return r.json(); })
+    .then(function(st){
+      if(typeof st.version === 'number') remote.version = st.version;
+      setRemoteStatus('Connected · synced (v' + remote.version + '). Watching for changes from SketchUp / iPad…');
+    })
+    .catch(function(){ setRemoteStatus('Hub unreachable — edits are saved locally and will push when it answers.'); });
+}
+function pollRemote(){
+  if(!remote.on) return;
+  fetch('/state', { headers: remoteHeaders() })
+    .then(function(r){ return r.json(); })
+    .then(function(st){
+      if(!remote.on) return;
+      if(typeof st.version === 'number' && st.version > remote.version && st.updatedBy !== remoteClientId){
+        remote.version = st.version;
+        applyFlatDesign(st.design);
+        setRemoteStatus('Applied a change from ' + (st.updatedBy || 'another client') + ' (v' + st.version + ').');
+      }
+    })
+    .catch(function(){ /* hub down; keep polling quietly */ });
+}
+function toggleRemote(){
+  const btn = document.getElementById('btnRemote');
+  if(remote.on){
+    remote.on = false;
+    if(remote.timer) clearInterval(remote.timer);
+    if(remote.pushTimer) clearTimeout(remote.pushTimer);
+    remote.timer = null;
+    if(btn) btn.textContent = 'Connect to hub';
+    setRemoteStatus('Not connected.');
+    return;
+  }
+  if(!remoteToken()){
+    setRemoteStatus('No pairing token in this page address. Open the app from the hub address (…:8741/3d/?t=…) to connect. The GitHub copy stays standalone.');
+    return;
+  }
+  remote.on = true;
+  if(btn) btn.textContent = 'Disconnect';
+  setRemoteStatus('Connecting…');
+  fetch('/state', { headers: remoteHeaders() })
+    .then(function(r){ return r.json(); })
+    .then(function(st){
+      if(!remote.on) return;
+      remote.version = typeof st.version === 'number' ? st.version : 0;
+      if(remote.version > 0 && st.updatedBy !== remoteClientId){
+        applyFlatDesign(st.design);
+        setRemoteStatus('Connected · applied the hub design (v' + remote.version + ', from ' + (st.updatedBy || 'server') + ').');
+      } else {
+        pushRemote();
+      }
+      remote.timer = setInterval(pollRemote, 2000);
+    })
+    .catch(function(){
+      remote.on = false;
+      if(btn) btn.textContent = 'Connect to hub';
+      setRemoteStatus('Could not reach the hub from this page. Remote works from the hub-served copy (…:8741/3d/).');
+    });
 }
 
 function spkDz(a){ return (typeof a.height === 'number' ? a.height : 5.5) - 1.5; }
