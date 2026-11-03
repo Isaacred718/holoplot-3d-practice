@@ -1032,6 +1032,7 @@ function onPointerDown(ev){
   else if(state.tool === 'move') handleMoveDown(ev, g, plan);
   else if(state.tool === 'tape') handleTapeDown(ev, g, plan);
   else if(state.tool === 'eraser') handleEraserDown(ev, g);
+  else if(state.tool === 'pan') handlePanDown(ev, g);
 
   gesture = g;
 }
@@ -1041,6 +1042,12 @@ function handleSelectDown(ev, g){
   if(hit) selectObject(hit.type, hit.id);
   else selectObject(null, null);
   g.mode = 'select';
+}
+
+function handlePanDown(ev, g){
+  g.mode = 'pan';
+  g.lastX = ev.clientX;
+  g.lastY = ev.clientY;
 }
 
 function handleRectangleDown(ev, g, plan){
@@ -1175,7 +1182,23 @@ function onPointerMove(ev){
     if(Math.abs(ev.clientX - g.startX) > 4 || Math.abs(ev.clientY - g.startY) > 4) g.changed = true;
   }
 
-  if(g && g.mode === 'pushpull'){
+  if(g && g.mode === 'pan'){
+    const dx = ev.clientX - (g.lastX || ev.clientX);
+    const dy = ev.clientY - (g.lastY || ev.clientY);
+    g.lastX = ev.clientX;
+    g.lastY = ev.clientY;
+    if((dx || dy) && camera && controls){
+      const dist = camera.position.distanceTo(controls.target);
+      const hPx = (renderer && renderer.domElement && renderer.domElement.clientHeight) || 600;
+      const wpp = 2 * dist * Math.tan((camera.fov * Math.PI / 180) / 2) / hPx;
+      const right = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0);
+      const up = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 1);
+      const delta = right.multiplyScalar(-dx * wpp).add(up.multiplyScalar(dy * wpp));
+      camera.position.add(delta);
+      controls.target.add(delta);
+      g.changed = true;
+    }
+  } else if(g && g.mode === 'pushpull'){
     const hit = verticalHit(ev, g.topPoint, g);
     if(hit){
       let h = state.snap ? snapValue(hit.y) : hit.y;
@@ -1482,6 +1505,12 @@ function initUI(){
   document.getElementById('btnAboutClose').addEventListener('click', function(){
     document.getElementById('aboutModal').classList.remove('active');
   });
+  document.getElementById('btnShortcuts').addEventListener('click', function(){
+    document.getElementById('shortcutsModal').classList.add('active');
+  });
+  document.getElementById('btnShortcutsClose').addEventListener('click', function(){
+    document.getElementById('shortcutsModal').classList.remove('active');
+  });
 
   // Array controls
   document.getElementById('btnAddSpeaker').addEventListener('click', addSpeaker);
@@ -1579,15 +1608,56 @@ function initUI(){
     }
   });
 
-  // Keyboard shortcuts (ignored while typing in a field)
+  // Keyboard shortcuts — SketchUp bindings (ignored while typing in a field,
+  // except Ctrl/⌘+Z, Ctrl/⌘+S and Esc, which always work).
+  function nudgeSelected(dx, dy, fine, repeat){
+    const sel = state.selectedObject;
+    if(!sel){ setStatus('Nudge: select a block or array first.'); return; }
+    const step = fine ? 0.1 : 0.5;
+    const mx = dx * step, my = dy * step;
+    if(sel.type === 'block'){
+      const b = findBlock(sel.id);
+      if(!b) return;
+      if(!repeat) pushUndo();
+      const nx = fine ? Math.round((b.x + mx) * 10) / 10 : snapValue(b.x + mx);
+      const ny = fine ? Math.round((b.y + my) * 10) / 10 : snapValue(b.y + my);
+      if(nx !== b.x || ny !== b.y){
+        b.x = nx; b.y = ny;
+        updateBlockMesh(b);
+        saveState();
+        setStatus('Nudge: block at ' + fmtNum(b.x) + ', ' + fmtNum(b.y) + ' m');
+      } else if(!repeat) state.undoStack.pop();
+    } else if(sel.type === 'array'){
+      const a = findArray(sel.id);
+      if(!a) return;
+      if(fine){
+        a.x = Math.round((a.x + mx) * 10) / 10;
+        a.y = Math.round((a.y + my) * 10) / 10;
+        buildArrays(); buildCoverage(); syncArrayPanel(); saveState();
+      } else {
+        moveArrayTo(a, a.x + mx, a.y + my);
+      }
+      setStatus('Nudge: ' + a.name + ' at ' + fmtNum(a.x) + ', ' + fmtNum(a.y) + ' m');
+    }
+  }
+
   document.addEventListener('keydown', function(e){
     const inField = e.target && e.target.closest && e.target.closest('input,textarea,select');
-    if(e.ctrlKey && (e.key === 'z' || e.key === 'Z')){
+    const mod = e.ctrlKey || e.metaKey;
+    if(mod && (e.key === 'z' || e.key === 'Z') && !e.shiftKey){
       e.preventDefault();
       undo();
       return;
     }
+    if(mod && (e.key === 's' || e.key === 'S')){
+      e.preventDefault();
+      saveState();
+      setStatus('Design saved.');
+      return;
+    }
     if(e.key === 'Escape'){
+      const sm = document.getElementById('shortcutsModal');
+      if(sm && sm.classList.contains('active')){ sm.classList.remove('active'); return; }
       clearPendingTools();
       setMeasurementsText(state.tool === 'tape' ? '' : '-', state.tool === 'tape');
       if(inField && e.target.blur) e.target.blur();
@@ -1595,10 +1665,48 @@ function initUI(){
       return;
     }
     if(inField) return;
-    if(e.ctrlKey || e.metaKey || e.altKey) return;
+    if(mod || e.altKey) return;
+    if(e.key === ' ' || e.code === 'Space'){
+      e.preventDefault();
+      setTool('select');
+      return;
+    }
+    if(e.key === 'Delete' || e.key === 'Backspace'){
+      const sel = state.selectedObject;
+      if(sel && sel.type === 'block'){
+        e.preventDefault();
+        if(deleteBlock(sel.id)) setStatus('Block deleted. Ctrl/⌘+Z undoes it.');
+      } else if(sel && sel.type === 'array'){
+        setStatus('Arrays are protected from Delete. Use the speaker controls to change them.');
+      }
+      return;
+    }
+    if(e.key.indexOf('Arrow') === 0){
+      e.preventDefault();
+      const dx = e.key === 'ArrowLeft' ? -1 : (e.key === 'ArrowRight' ? 1 : 0);
+      const dy = e.key === 'ArrowUp' ? 1 : (e.key === 'ArrowDown' ? -1 : 0);
+      nudgeSelected(dx, dy, e.shiftKey, e.repeat);
+      return;
+    }
+    if(e.key === 'Z' && e.shiftKey){
+      e.preventDefault();
+      setCameraHome();
+      setStatus('Zoom Extents: whole venue in view.');
+      return;
+    }
+    if(e.key === '?'){
+      document.getElementById('shortcutsModal').classList.toggle('active');
+      return;
+    }
+    if(/^[0-9.\-]$/.test(e.key) && (state.tool === 'rectangle' || state.tool === 'pushpull' || state.tool === 'move')){
+      const m = document.getElementById('measurementsInput');
+      if(m){ m.focus(); m.value = e.key; e.preventDefault(); }
+      return;
+    }
     const key = e.key.toLowerCase();
     if(key === 'v') setTool('select');
-    else if(key === 'h') setTool('orbit');
+    else if(key === 'o') setTool('orbit');
+    else if(key === 'h') setTool('pan');
     else if(key === 'r') setTool('rectangle');
     else if(key === 'p') setTool('pushpull');
     else if(key === 'm') setTool('move');
@@ -1628,7 +1736,8 @@ function setTool(tool){
 function updateStatus(){
   const msgs = {
     select: 'Select: click a block or array to select it.',
-    orbit: 'Orbit: drag to orbit, scroll to zoom.',
+    orbit: 'Orbit: drag to orbit, scroll to zoom, right-drag to pan.',
+    pan: 'Hand: drag to pan the view.',
     rectangle: 'Rectangle: click two ground corners, or type WxD and press Enter.',
     pushpull: 'Push/Pull: drag a block top, or type a height and press Enter.',
     move: 'Move: drag a block or array, or type dx,dz and press Enter.',

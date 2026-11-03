@@ -380,3 +380,7 @@ html, body {
     width: 200px;
   }
 }
+
+.sc-table { border-collapse: collapse; width: 100%; }
+.sc-table td { padding: 4px 8px; border-bottom: 1px solid rgba(148,163,184,.18); font-size: 13px; }
+.sc-table td b { color: #facc15; font-weight: 600; white-space: nowrap; }

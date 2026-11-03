@@ -32,19 +32,25 @@
         <button id="btnExportGLB">Export GLB</button>
         <button id="btnReset">Reset design</button>
         <button id="btnAbout">About</button>
+        <button id="btnShortcuts">Shortcuts</button>
       </div>
     </header>
 
     <div id="main">
       <aside id="toolRail">
-        <div class="tool" data-tool="select" title="Select (V)">
+        <div class="tool" data-tool="select" title="Select (Space)">
           <div class="tool-icon">⇲</div>
           <div class="tool-label">Select</div>
-          <div class="tool-key">V</div>
+          <div class="tool-key">Space</div>
         </div>
-        <div class="tool" data-tool="orbit" title="Orbit (H)">
+        <div class="tool" data-tool="orbit" title="Orbit (O)">
           <div class="tool-icon">◎</div>
           <div class="tool-label">Orbit</div>
+          <div class="tool-key">O</div>
+        </div>
+        <div class="tool" data-tool="pan" title="Hand (H)">
+          <div class="tool-icon">✋</div>
+          <div class="tool-label">Hand</div>
           <div class="tool-key">H</div>
         </div>
         <div class="tool" data-tool="rectangle" title="Rectangle (R)">
@@ -162,6 +168,27 @@
         <p>SPL values are relative practice values from a simplified model.</p>
       </div>
       <div class="modal-footer"><button id="btnAboutClose">Close</button></div>
+    </div>
+  </div>
+
+
+  <div id="shortcutsModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">Keyboard shortcuts (SketchUp-style)</div>
+      <div class="modal-body">
+        <table class="sc-table">
+          <tr><td><b>Space</b></td><td>Select</td><td><b>O</b></td><td>Orbit</td></tr>
+          <tr><td><b>H</b></td><td>Hand (pan)</td><td><b>R</b></td><td>Rectangle</td></tr>
+          <tr><td><b>P</b></td><td>Push/Pull</td><td><b>M</b></td><td>Move</td></tr>
+          <tr><td><b>T</b></td><td>Tape Measure</td><td><b>E</b></td><td>Eraser</td></tr>
+          <tr><td><b>Esc</b></td><td>Cancel current step</td><td><b>Del</b></td><td>Delete selected block</td></tr>
+          <tr><td><b>Arrow keys</b></td><td>Nudge selection 0.5 m (Shift = 0.1 m)</td><td><b>Shift+Z</b></td><td>Zoom Extents</td></tr>
+          <tr><td><b>Ctrl/⌘+Z</b></td><td>Undo</td><td><b>Ctrl/⌘+S</b></td><td>Save design</td></tr>
+          <tr><td><b>0-9 . -</b></td><td>Start typing in Measurements</td><td><b>?</b></td><td>This panel</td></tr>
+        </table>
+        <p>While a tool is active, just start typing a number: it lands in the Measurements box, same as SketchUp. Enter applies it.</p>
+      </div>
+      <div class="modal-footer"><button id="btnShortcutsClose">Close</button></div>
     </div>
   </div>
 
