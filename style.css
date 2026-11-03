@@ -384,3 +384,6 @@ html, body {
 .sc-table { border-collapse: collapse; width: 100%; }
 .sc-table td { padding: 4px 8px; border-bottom: 1px solid rgba(148,163,184,.18); font-size: 13px; }
 .sc-table td b { color: #facc15; font-weight: 600; white-space: nowrap; }
+
+.beam-chip { margin-right: 4px; padding: 2px 8px; border-radius: 10px; cursor: pointer; }
+.beam-chip.active { outline: 2px solid #eab308; font-weight: bold; }

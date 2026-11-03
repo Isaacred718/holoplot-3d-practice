@@ -103,11 +103,21 @@
             <div class="row">
               <label>On <input type="checkbox" id="arrayOn"></label>
             </div>
+            <div class="row">
+              <span id="beamChips"></span>
+              <button id="btnAddBeam">+ Beam</button>
+              <button id="btnDelBeam">&#10005; Beam</button>
+            </div>
+            <div class="row">
+              <label>Zone <select id="beamZone"></select></label>
+              <label>Layer <select id="beamLayer"><option>Main</option><option>Balcony</option><option>Fill</option></select></label>
+            </div>
             <label>Azimuth <input type="range" id="azRange" min="-40" max="40" step="1"> <span id="azVal">-10</span></label>
             <label>Tilt <input type="range" id="tiltRange" min="-15" max="25" step="1"> <span id="tiltVal">0</span></label>
             <label>hBeam <input type="range" id="hBeamRange" min="10" max="60" step="1"> <span id="hBeamVal">28</span></label>
             <label>vBeam <input type="range" id="vBeamRange" min="8" max="40" step="1"> <span id="vBeamVal">18</span></label>
             <label>Gain <input type="range" id="gainRange" min="-12" max="12" step="1"> <span id="gainVal">0</span></label>
+            <label>Height <input type="range" id="heightRange" min="0.5" max="12" step="0.1"> <span id="heightVal">5.5</span></label>
             <div class="row">
               <label>X <input type="number" id="arrayX" step="0.5"></label>
               <label>Y <input type="number" id="arrayY" step="0.5"></label>
@@ -144,6 +154,15 @@
             <div class="tag-row"><label><input type="checkbox" data-tag="Arrays" checked> Arrays</label></div>
             <div class="tag-row"><label><input type="checkbox" data-tag="Beams" checked> Beams</label></div>
             <div class="tag-row"><label><input type="checkbox" data-tag="Coverage" checked> Coverage</label></div>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <div class="panel-header">Layers</div>
+          <div class="panel-body">
+            <div class="tag-row"><label><input type="checkbox" data-layer="Main" checked> Main</label></div>
+            <div class="tag-row"><label><input type="checkbox" data-layer="Balcony" checked> Balcony</label></div>
+            <div class="tag-row"><label><input type="checkbox" data-layer="Fill" checked> Fill</label></div>
           </div>
         </section>
 

@@ -60,7 +60,7 @@ function HP_compute(design, step){
   
   (design.arrays || []).forEach(function(a){
     if(!a.on) return;
-    const key = stepVal + "|" + venue.id + "|" + a.x + "|" + a.y + "|" + (a.on?1:0) + "|" + 
+    const key = stepVal + "|" + venue.id + "|" + a.x + "|" + a.y + "|" + (typeof a.height==="number"?a.height:5.5) + "|" + (a.on?1:0) + "|" + 
       (a.beams||[]).map(function(b){ return [b.az,b.hBeam,b.gain,(design.layerOn && design.layerOn[b.layer]===false)?0:1].join(","); }).join(";");
     let energies = design._arrCache[key];
     if(!energies){
@@ -70,7 +70,8 @@ function HP_compute(design, step){
         for(let i=0; i<coords.length; i++){
           const px = coords[i].x, py = coords[i].y;
           const dx = px - a.x, dy = py - a.y;
-          const dist = Math.sqrt(dx*dx + dy*dy + 16);
+          const dz = (typeof a.height === 'number' ? a.height : 5.5) - 1.5;
+          const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
           const beamAng = Math.atan2(dx, dy) * 180 / Math.PI;
           let diff = beamAng - b.az;
           while(diff > 180) diff -= 360;
@@ -161,9 +162,9 @@ if(typeof window !== 'undefined'){
 // Defaults — source of truth for the initial design and Reset design.
 function defaultArrays(){
   return [
-    {id:1, name:'Array L', model:'X2', x:-6, y:4, on:true, beams:[{az:-10, tilt:0, hBeam:28, vBeam:18, gain:0, zone:'Stalls', layer:'Main'}]},
-    {id:2, name:'Array R', model:'X2', x:6, y:4, on:true, beams:[{az:10, tilt:0, hBeam:28, vBeam:18, gain:0, zone:'Stalls', layer:'Main'}]},
-    {id:3, name:'Centre / Balcony', model:'X1', x:0, y:4, on:false, beams:[{az:0, tilt:8, hBeam:20, vBeam:12, gain:-3, zone:'Balcony', layer:'Balcony'}]}
+    {id:1, name:'Array L', model:'X2', x:-6, y:4, height:5.5, on:true, beams:[{az:-10, tilt:0, hBeam:28, vBeam:18, gain:0, zone:'Stalls', layer:'Main'}]},
+    {id:2, name:'Array R', model:'X2', x:6, y:4, height:5.5, on:true, beams:[{az:10, tilt:0, hBeam:28, vBeam:18, gain:0, zone:'Stalls', layer:'Main'}]},
+    {id:3, name:'Centre / Balcony', model:'X1', x:0, y:4, height:5.5, on:false, beams:[{az:0, tilt:8, hBeam:20, vBeam:12, gain:-3, zone:'Balcony', layer:'Balcony'}]}
   ];
 }
 
@@ -192,6 +193,7 @@ const state = {
   blocks: [],
   resMode: 'low',
   selectedArrayId: 1,
+  selBeam: 0,
   selectedObject: null,
   tool: 'select',
   snap: true,
@@ -226,6 +228,7 @@ function loadState(){
       }
       if(parsed.zoneTargets) state.zoneTargets = parsed.zoneTargets;
       if(parsed.layerOn) state.layerOn = parsed.layerOn;
+      normalizeArrays();
       if(parsed.tags) state.tags = Object.assign(defaultTags(), parsed.tags);
       if(Array.isArray(parsed.blocks)) state.blocks = parsed.blocks;
     }
@@ -621,14 +624,16 @@ function buildArrays(){
     const bodyGeo = new THREE.BoxGeometry(0.8, 1.2, 0.5);
     const bodyMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
     const body = new THREE.Mesh(bodyGeo, bodyMat);
-    body.position.y = 4.6;
+    const aH = (typeof arr.height === 'number' ? arr.height : 5.5);
+    body.position.y = aH;
     group.add(body);
 
     // Stand
-    const standGeo = new THREE.CylinderGeometry(0.1, 0.15, 4, 8);
+    const standH = Math.max(0.1, aH - 0.6);
+    const standGeo = new THREE.CylinderGeometry(0.1, 0.15, standH, 8);
     const standMat = new THREE.MeshStandardMaterial({ color: 0x666666 });
     const stand = new THREE.Mesh(standGeo, standMat);
-    stand.position.y = 2;
+    stand.position.y = standH / 2;
     group.add(stand);
 
     group.position.set(arr.x, 0, -arr.y);
@@ -641,7 +646,7 @@ function buildArrays(){
         const tiltDeg = beam.tilt || 0;
         const azDeg = beam.az || 0;
         const tiltRad = tiltDeg * D2R;
-        let len = tiltDeg > 0.5 ? 4.6 / Math.sin(tiltRad) : lMax;
+        let len = tiltDeg > 0.5 ? aH / Math.sin(tiltRad) : lMax;
         len = clampNum(len, 2, lMax);
         const rH = Math.max(0.2, len * Math.tan((beam.hBeam || 28) / 2 * D2R));
         const rV = Math.max(0.2, len * Math.tan((beam.vBeam || 18) / 2 * D2R));
@@ -653,7 +658,7 @@ function buildArrays(){
           side: THREE.DoubleSide
         });
         const beamMesh = new THREE.Mesh(BEAM_GEO, beamMat);
-        beamMesh.position.set(arr.x, 4.6, -arr.y);
+        beamMesh.position.set(arr.x, aH, -arr.y);
         beamMesh.quaternion.setFromEuler(new THREE.Euler(tiltRad, Math.PI - azDeg * D2R, 0, 'YXZ'));
         beamMesh.scale.set(rH, rV, len);
         beamsGroup.add(beamMesh);
@@ -1514,6 +1519,47 @@ function initUI(){
 
   // Array controls
   document.getElementById('btnAddSpeaker').addEventListener('click', addSpeaker);
+  document.getElementById('btnAddBeam').addEventListener('click', function(){
+    const arr = getSelectedArray();
+    if(!arr) return;
+    if(arr.beams.length >= 3){ setStatus('Max 3 beams per array, same as the 2D app.'); return; }
+    const src = getSelectedBeam() || {az:0, tilt:0, hBeam:28, vBeam:18, gain:0, zone:'', layer:'Main'};
+    arr.beams.push({az:src.az, tilt:src.tilt, hBeam:src.hBeam, vBeam:src.vBeam, gain:src.gain, zone:src.zone, layer:src.layer});
+    state.selBeam = arr.beams.length - 1;
+    buildArrays(); buildCoverage(); saveState(); syncArrayPanel();
+    setStatus(arr.name + ': Beam ' + arr.beams.length + ' added (copies Beam ' + (state.selBeam) + '). Aim it with the sliders.');
+  });
+  document.getElementById('btnDelBeam').addEventListener('click', function(){
+    const arr = getSelectedArray();
+    if(!arr) return;
+    if(arr.beams.length <= 1){ setStatus('An array keeps at least 1 beam.'); return; }
+    const n = state.selBeam + 1;
+    arr.beams.splice(state.selBeam, 1);
+    if(state.selBeam >= arr.beams.length) state.selBeam = arr.beams.length - 1;
+    buildArrays(); buildCoverage(); saveState(); syncArrayPanel();
+    setStatus(arr.name + ': Beam ' + n + ' removed.');
+  });
+  document.getElementById('beamZone').addEventListener('change', function(e){
+    const b = getSelectedBeam();
+    if(b){ b.zone = e.target.value; saveState(); setStatus('Beam target zone: ' + (b.zone || '(none)') + '.'); }
+  });
+  document.getElementById('beamLayer').addEventListener('change', function(e){
+    const b = getSelectedBeam();
+    if(b){ b.layer = e.target.value; buildArrays(); buildCoverage(); saveState(); }
+  });
+  document.getElementById('heightRange').addEventListener('input', function(e){
+    const hv = parseFloat(e.target.value);
+    document.getElementById('heightVal').textContent = hv.toFixed(1);
+    const arr = getSelectedArray();
+    if(arr){ arr.height = hv; buildArrays(); buildCoverage(); saveState(); }
+  });
+  document.querySelectorAll('[data-layer]').forEach(function(cb){
+    cb.addEventListener('change', function(){
+      state.layerOn[cb.getAttribute('data-layer')] = cb.checked;
+      buildArrays(); buildCoverage(); saveState();
+      setStatus('Layer ' + cb.getAttribute('data-layer') + (cb.checked ? ' on.' : ' muted.'));
+    });
+  });
   document.getElementById('btnDelSpeaker').addEventListener('click', delSpeaker);
   document.getElementById('arrayOn').addEventListener('change', function(e){
     const arr = getSelectedArray();
@@ -1522,27 +1568,27 @@ function initUI(){
   document.getElementById('azRange').addEventListener('input', function(e){
     document.getElementById('azVal').textContent = e.target.value;
     const arr = getSelectedArray();
-    if(arr && arr.beams[0]){ arr.beams[0].az = parseInt(e.target.value, 10); buildArrays(); buildCoverage(); saveState(); }
+    const b = getSelectedBeam(); if(b){ b.az = parseInt(e.target.value, 10); buildArrays(); buildCoverage(); saveState(); }
   });
   document.getElementById('tiltRange').addEventListener('input', function(e){
     document.getElementById('tiltVal').textContent = e.target.value;
     const arr = getSelectedArray();
-    if(arr && arr.beams[0]){ arr.beams[0].tilt = parseInt(e.target.value, 10); buildArrays(); buildCoverage(); saveState(); }
+    const b = getSelectedBeam(); if(b){ b.tilt = parseInt(e.target.value, 10); buildArrays(); buildCoverage(); saveState(); }
   });
   document.getElementById('hBeamRange').addEventListener('input', function(e){
     document.getElementById('hBeamVal').textContent = e.target.value;
     const arr = getSelectedArray();
-    if(arr && arr.beams[0]){ arr.beams[0].hBeam = parseInt(e.target.value, 10); buildArrays(); buildCoverage(); saveState(); }
+    const b = getSelectedBeam(); if(b){ b.hBeam = parseInt(e.target.value, 10); buildArrays(); buildCoverage(); saveState(); }
   });
   document.getElementById('vBeamRange').addEventListener('input', function(e){
     document.getElementById('vBeamVal').textContent = e.target.value;
     const arr = getSelectedArray();
-    if(arr && arr.beams[0]){ arr.beams[0].vBeam = parseInt(e.target.value, 10); buildArrays(); buildCoverage(); saveState(); }
+    const b = getSelectedBeam(); if(b){ b.vBeam = parseInt(e.target.value, 10); buildArrays(); buildCoverage(); saveState(); }
   });
   document.getElementById('gainRange').addEventListener('input', function(e){
     document.getElementById('gainVal').textContent = e.target.value;
     const arr = getSelectedArray();
-    if(arr && arr.beams[0]){ arr.beams[0].gain = parseInt(e.target.value, 10); buildArrays(); buildCoverage(); saveState(); }
+    const b = getSelectedBeam(); if(b){ b.gain = parseInt(e.target.value, 10); buildArrays(); buildCoverage(); saveState(); }
   });
   document.getElementById('arrayX').addEventListener('change', function(e){
     const arr = getSelectedArray();
@@ -1840,6 +1886,7 @@ function updateArrayUI(){
     const arr = findArray(arrSelect.value);
     if(arr){
       state.selectedArrayId = arr.id;
+      state.selBeam = 0;
       selectObject('array', arr.id);
     }
   };
@@ -1853,12 +1900,72 @@ function getSelectedArray(){
   return state.arrays[0] || null;
 }
 
+
+function getSelectedBeam(){
+  const arr = getSelectedArray();
+  if(!arr || !arr.beams || !arr.beams.length) return null;
+  if(state.selBeam >= arr.beams.length) state.selBeam = arr.beams.length - 1;
+  if(state.selBeam < 0) state.selBeam = 0;
+  return arr.beams[state.selBeam];
+}
+
+function syncBeamChips(){
+  const wrap = document.getElementById('beamChips');
+  if(!wrap) return;
+  const arr = getSelectedArray();
+  wrap.innerHTML = '';
+  if(!arr || !arr.beams) return;
+  arr.beams.forEach(function(b, i){
+    const btn = document.createElement('button');
+    btn.textContent = 'Beam ' + (i + 1);
+    btn.className = 'beam-chip' + (i === state.selBeam ? ' active' : '');
+    btn.addEventListener('click', function(){
+      state.selBeam = i;
+      syncArrayPanel();
+      setStatus(arr.name + ': editing Beam ' + (i + 1) + '.');
+    });
+    wrap.appendChild(btn);
+  });
+}
+
+function syncBeamSelects(b){
+  const zoneSel = document.getElementById('beamZone');
+  const layerSel = document.getElementById('beamLayer');
+  if(zoneSel){
+    const venue = hVenueById(state.venueId);
+    const cur = zoneSel.value;
+    zoneSel.innerHTML = '';
+    (venue.zones || []).forEach(function(z){
+      const o = document.createElement('option');
+      o.value = z.name; o.textContent = z.name;
+      zoneSel.appendChild(o);
+    });
+    const empty = document.createElement('option');
+    empty.value = ''; empty.textContent = '(none)';
+    zoneSel.appendChild(empty);
+    zoneSel.value = b.zone || '';
+    if(zoneSel.value !== (b.zone || '')) zoneSel.value = cur || '';
+  }
+  if(layerSel) layerSel.value = b.layer || 'Main';
+}
+
+function normalizeArrays(){
+  state.arrays.forEach(function(a){
+    if(typeof a.height !== 'number') a.height = 5.5;
+    if(!Array.isArray(a.beams) || !a.beams.length) a.beams = [{az:0, tilt:0, hBeam:28, vBeam:18, gain:0, zone:'', layer:'Main'}];
+    a.beams.forEach(function(b){ if(!b.layer) b.layer = 'Main'; if(typeof b.zone !== 'string') b.zone = ''; });
+  });
+}
+
 function syncArrayPanel(){
   const arr = getSelectedArray();
   if(!arr) return;
   document.getElementById('arrayOn').checked = !!arr.on;
-  if(arr.beams && arr.beams[0]){
-    const b = arr.beams[0];
+  syncBeamChips();
+  const heightEl = document.getElementById('heightRange');
+  if(heightEl){ const hv = (typeof arr.height === 'number' ? arr.height : 5.5); heightEl.value = hv; document.getElementById('heightVal').textContent = hv.toFixed(1); }
+  const b = getSelectedBeam();
+  if(b){
     document.getElementById('azRange').value = b.az;
     document.getElementById('azVal').textContent = b.az;
     document.getElementById('tiltRange').value = b.tilt;
@@ -1869,6 +1976,7 @@ function syncArrayPanel(){
     document.getElementById('vBeamVal').textContent = b.vBeam;
     document.getElementById('gainRange').value = b.gain;
     document.getElementById('gainVal').textContent = b.gain;
+    syncBeamSelects(b);
   }
   document.getElementById('arrayX').value = arr.x;
   document.getElementById('arrayY').value = arr.y;
@@ -1885,6 +1993,7 @@ function addSpeaker(){
     model: 'X1',
     x: 0,
     y: 4,
+    height: 5.5,
     on: false,
     beams: [{ az: 0, tilt: 0, hBeam: 28, vBeam: 18, gain: 0, zone: '', layer: 'Main' }]
   });
